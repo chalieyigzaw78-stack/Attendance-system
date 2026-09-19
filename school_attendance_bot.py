@@ -7,6 +7,12 @@ the whole school structure (buildings, grades, sections, students,
 teachers) is built up THROUGH the bot -- nothing needs to be known or
 configured in advance.
 
+Both ADMINS and TEACHERS get a button menu after /start (or /menu) so
+almost nothing needs to be typed by hand -- the bot asks for whatever it
+needs, one step at a time, and lets you pick existing classes/teachers/
+students from a list instead of typing their names. The original slash
+commands still work too, for anyone who prefers typing.
+
 RUNS 24/7 WHEN DEPLOYED (e.g. Render, Railway):
   - Opens a tiny HTTP server on $PORT so free "Web Service" hosting tiers
     (which require something listening on a port) accept it, even though
@@ -39,62 +45,43 @@ FIRST RUN:
   The very first person to send /start becomes the first admin
   automatically. After that, only admins can add other admins.
 
-ADMIN COMMANDS:
+ADMIN -- BUTTON MENU (shown automatically after /start, or via /menu):
+  ➕ Add Class            -- walks you through Building / Grade / Section
+  🧑‍🎓 Add Student          -- pick a class, then send the student's name
+  📥 Bulk Add Students    -- pick a class, then upload an Excel/CSV/PDF
+  👨‍🏫 Add Teacher          -- send their numeric Telegram ID + name
+  🔗 Assign Teacher       -- pick a teacher, then pick a class
+  📚 List Classes         -- shows the whole building/grade/section tree
+  🧑‍🤝‍🧑 List Students        -- pick a class, see students + guardian counts
+  🔑 Student Code         -- pick a class, then a student, see their code
+  📋 Absentees Today      -- today's absent/late list
+  ➕ Add Admin            -- send a numeric Telegram ID
+  ❌ Cancel               -- cancels whatever you're in the middle of
+
+ADMIN -- SLASH COMMANDS (still work, for typing instead of tapping):
   /addadmin <telegram_id>
-      Grant admin rights to another Telegram user ID.
-
   /addclass <Building > Grade > Section>
-      Creates the building/grade/section if they don't exist yet.
-      Example: /addclass Main Campus > Grade 9 > Section A
-
   /addstudent <Building > Grade > Section> | <Student Full Name>
-      Adds a single student to an EXISTING class path. Returns a parent
-      link code -- give this to the student's parent/guardian.
-      Example: /addstudent Main Campus > Grade 9 > Section A | Selam Bekele
-
-  /addstudents <Building > Grade > Section>
-      Bulk-add students to an EXISTING class. After running this, upload
-      an Excel (.xlsx), CSV (.csv), or PDF (.pdf) file with one student
-      name per row/line. The bot adds them all and replies with every
-      parent link code.
-
+  /addstudents <Building > Grade > Section>   (then upload a file)
   /addteacher <numeric telegram id> <Teacher Name>
-      Registers a teacher (they still need to /start the bot themselves
-      at least once so their Telegram account is known to it).
-
   /assignteacher <numeric telegram id> <Building > Grade > Section>
-      Gives a teacher access to take attendance for that class.
-
   /listclasses
-      Shows the full building -> grade -> section tree.
-
   /liststudents <Building > Grade > Section>
-      Lists students (and their parent-link status) in a class.
-
   /studentcode <Building > Grade > Section> | <Student Name>
-      Re-shows a student's parent link code.
-
   /absentees [YYYY-MM-DD]
-      Lists everyone marked absent/late school-wide for a date
-      (defaults to today).
 
-TEACHER COMMANDS:
-  /myclasses
-      Shows the classes this teacher is assigned to as tappable buttons.
-      Tapping a class immediately starts attendance for it -- no typing
-      needed. Teachers also see a persistent "📋 My Classes" button after
-      /start, which does the same thing.
-
-  /attendance <Building > Grade > Section>
-      Starts roll call directly by typing the class path: one message, a
-      button per student (defaults to Present), tap to cycle Present ->
-      Absent -> Late, then Submit.
+TEACHER:
+  A persistent "📋 My Classes" button appears after /start. Tapping it
+  shows the teacher's classes as buttons; tapping a class starts
+  attendance immediately. /myclasses and /attendance <class path> still
+  work too.
 
 PARENT / GUARDIAN:
   /link <code>
       Links this Telegram chat to a student using the code the school
-      gave you. From then on, you're notified automatically whenever
-      that student is marked absent or late.
+      gave you. Multiple people (mother, father, another guardian) can
+      each send /link with the SAME code -- every linked chat gets
+      notified whenever that student is marked absent or late.
 
   You can also just tap a t.me/<bot>?start=<code> link if the school
   shares one directly.
@@ -102,6 +89,7 @@ PARENT / GUARDIAN:
 
 import os
 import io
+import re
 import csv
 import sqlite3
 import secrets
@@ -138,11 +126,37 @@ if USE_POSTGRES:
 STATUS_CYCLE = ["present", "absent", "late"]
 STATUS_EMOJI = {"present": "✅", "absent": "❌", "late": "🕒"}
 
+# Row headers to skip when bulk-importing student names from a file.
+NAME_HEADER_WORDS = {"name", "student", "student name", "full name", "students"}
+
+# --- Reply-keyboard button labels ---
 MY_CLASSES_LABEL = "📋 My Classes"
 TEACHER_MENU = ReplyKeyboardMarkup([[MY_CLASSES_LABEL]], resize_keyboard=True)
 
-# Row headers to skip when bulk-importing student names from a file.
-NAME_HEADER_WORDS = {"name", "student", "student name", "full name", "students"}
+BTN_ADD_CLASS = "➕ Add Class"
+BTN_ADD_STUDENT = "🧑‍🎓 Add Student"
+BTN_BULK_STUDENTS = "📥 Bulk Add Students"
+BTN_ADD_TEACHER = "👨‍🏫 Add Teacher"
+BTN_ASSIGN_TEACHER = "🔗 Assign Teacher"
+BTN_LIST_CLASSES = "📚 List Classes"
+BTN_LIST_STUDENTS = "🧑‍🤝‍🧑 List Students"
+BTN_STUDENT_CODE = "🔑 Student Code"
+BTN_ABSENTEES = "📋 Absentees Today"
+BTN_ADD_ADMIN = "➕ Add Admin"
+BTN_CANCEL = "❌ Cancel"
+
+ADMIN_MENU = ReplyKeyboardMarkup(
+    [
+        [BTN_ADD_CLASS, BTN_ADD_STUDENT],
+        [BTN_BULK_STUDENTS, BTN_ADD_TEACHER],
+        [BTN_ASSIGN_TEACHER, BTN_LIST_CLASSES],
+        [BTN_LIST_STUDENTS, BTN_STUDENT_CODE],
+        [BTN_ABSENTEES, BTN_ADD_ADMIN],
+        [BTN_CANCEL],
+    ],
+    resize_keyboard=True,
+)
+FLOW_CANCEL_MENU = ReplyKeyboardMarkup([[BTN_CANCEL]], resize_keyboard=True)
 
 # In-memory roll-call sessions while a teacher is actively marking attendance.
 # key: short token -> {"section_id", "section_path", "date", "teacher_id",
@@ -150,7 +164,8 @@ NAME_HEADER_WORDS = {"name", "student", "student name", "full name", "students"}
 pending_attendance = {}
 
 # In-memory bulk-upload requests: admin telegram_id -> {"section_id", "path"}
-# Set by /addstudents, consumed by the next document the admin sends.
+# Set by /addstudents or the 📥 Bulk Add Students button, consumed by the
+# next document the admin sends.
 pending_bulk_upload = {}
 
 
@@ -283,6 +298,26 @@ def init_db():
             UNIQUE(student_id, date)
         )
     """)
+    # Multiple guardians per student (mother, father, another guardian, etc).
+    # Everyone linked here gets notified on absence/late -- not just one.
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS parent_links (
+            id {id_type},
+            student_id INTEGER REFERENCES students(id),
+            chat_id BIGINT,
+            UNIQUE(student_id, chat_id)
+        )
+    """)
+    conn.commit()
+
+    # One-time migration: carry forward any old single parent_chat_id
+    # values (from before multi-guardian support) into parent_links.
+    conn.execute("""
+        INSERT INTO parent_links (student_id, chat_id)
+        SELECT id, parent_chat_id FROM students
+        WHERE parent_chat_id IS NOT NULL
+        ON CONFLICT (student_id, chat_id) DO NOTHING
+    """)
     conn.commit()
     conn.close()
     print(f"[db] Using {'Postgres' if USE_POSTGRES else 'SQLite (' + DB_PATH + ')'}")
@@ -397,6 +432,36 @@ def get_section_path(section_id: int):
     return f"{row['building_name']} > {row['grade_name']} > {row['section_name']}"
 
 
+def get_all_sections():
+    conn = db()
+    rows = conn.execute("""
+        SELECT sections.id AS section_id,
+               buildings.name AS building_name, grades.name AS grade_name, sections.name AS section_name
+        FROM sections
+        JOIN grades ON sections.grade_id = grades.id
+        JOIN buildings ON grades.building_id = buildings.id
+        ORDER BY building_name, grade_name, section_name
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+def get_all_teachers():
+    conn = db()
+    rows = conn.execute("SELECT id, telegram_id, name FROM teachers ORDER BY name").fetchall()
+    conn.close()
+    return rows
+
+
+def get_students_in_section(section_id):
+    conn = db()
+    rows = conn.execute(
+        "SELECT id, name FROM students WHERE section_id = ? ORDER BY name", (section_id,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
 def class_tree_text() -> str:
     conn = db()
     buildings = conn.execute("SELECT * FROM buildings ORDER BY name").fetchall()
@@ -420,6 +485,75 @@ def class_tree_text() -> str:
     return "\n".join(lines) if lines else "No classes set up yet. Use /addclass to start."
 
 
+def absentees_text(target_date: str) -> str:
+    conn = db()
+    rows = conn.execute("""
+        SELECT students.name AS student_name, attendance.status,
+               sections.name AS section_name, grades.name AS grade_name, buildings.name AS building_name
+        FROM attendance
+        JOIN students ON attendance.student_id = students.id
+        JOIN sections ON students.section_id = sections.id
+        JOIN grades ON sections.grade_id = grades.id
+        JOIN buildings ON grades.building_id = buildings.id
+        WHERE attendance.date = ? AND attendance.status IN ('absent', 'late')
+        ORDER BY building_name, grade_name, section_name, student_name
+    """, (target_date,)).fetchall()
+    conn.close()
+
+    if not rows:
+        return f"No absences/lates recorded for {target_date}."
+
+    lines = [f"📋 Absentees/late for {target_date}:"]
+    for r in rows:
+        emoji = STATUS_EMOJI[r["status"]]
+        lines.append(
+            f"  {emoji} {r['student_name']} — {r['building_name']} > {r['grade_name']} > {r['section_name']}"
+        )
+    return "\n".join(lines)
+
+
+def notification_text(student_name: str, status: str, section_path: str, date_str: str) -> str:
+    emoji = STATUS_EMOJI[status]
+    if status == "absent":
+        return (
+            f"{emoji} {student_name} was marked ABSENT today in {section_path} ({date_str}).\n\n"
+            f"Please call or check in with {student_name} to make sure everything is okay."
+        )
+    return (
+        f"{emoji} {student_name} was marked LATE today in {section_path} ({date_str}).\n\n"
+        f"Please check in with {student_name} — a reminder about arriving on time would help."
+    )
+
+
+# --- Inline keyboard builders (used by both admin buttons and flows) ---
+
+def build_section_picker(sections, action):
+    buttons = [
+        [InlineKeyboardButton(
+            f"{s['building_name']} > {s['grade_name']} > {s['section_name']}",
+            callback_data=f"adm_sec:{action}:{s['section_id']}",
+        )]
+        for s in sections
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def build_teacher_picker(teachers, action):
+    buttons = [
+        [InlineKeyboardButton(f"{t['name']} ({t['telegram_id']})", callback_data=f"adm_teacher:{action}:{t['id']}")]
+        for t in teachers
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def build_student_picker(students, action):
+    buttons = [
+        [InlineKeyboardButton(s["name"], callback_data=f"adm_student:{action}:{s['id']}")]
+        for s in students
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
 # --- Handlers: admin bootstrap & setup ---
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -438,12 +572,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         await update.message.reply_text(
             "👋 Welcome! No admin existed yet, so you're now the first admin.\n\n"
-            "Use /addclass to start building your school's structure. Send /help for a full command list."
+            "Use the buttons below to get started, or send /help for the full command list.",
+            reply_markup=ADMIN_MENU,
         )
         return
 
     if is_admin(telegram_id):
-        await update.message.reply_text("Welcome back, admin. Send /help for commands.")
+        await update.message.reply_text(
+            "Welcome back, admin. Use the buttons below, or /help for commands.",
+            reply_markup=ADMIN_MENU,
+        )
         return
 
     if is_teacher(telegram_id):
@@ -459,11 +597,22 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    if is_admin(telegram_id):
+        await update.message.reply_text("Admin menu:", reply_markup=ADMIN_MENU)
+    elif is_teacher(telegram_id):
+        await update.message.reply_text("Tap to see your classes:", reply_markup=TEACHER_MENU)
+    else:
+        await update.message.reply_text("Nothing to show here. Parents: use /link <code>.")
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    lines = ["/myclasses - see your assigned classes as buttons (teachers)",
+    lines = ["/menu - show your button menu again",
+             "/myclasses - see your assigned classes as buttons (teachers)",
              "/attendance <Building > Grade > Section> - take attendance by typing the class",
-             "/link <code> - parents: link yourself to your child"]
+             "/link <code> - parents/guardians: link yourself to a child (works for more than one guardian per child)"]
     if is_admin(telegram_id):
         lines = [
             "/addadmin <telegram_id>",
@@ -542,7 +691,8 @@ async def cmd_addstudent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Added {student_name} to {result['path']}.\n\n"
         f"Parent link code: `{link_code}`\n"
-        f"Give this to the parent — they send /link {link_code} to this bot to get absence notifications.",
+        f"Give this to the parent(s)/guardian(s) — anyone with the code can send "
+        f"/link {link_code} to this bot to get absence notifications.",
         parse_mode="Markdown",
     )
 
@@ -675,7 +825,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chunk = ""
         chunk += line + "\n"
     if chunk:
-        await update.message.reply_text(chunk, parse_mode="Markdown")
+        await update.message.reply_text(chunk, parse_mode="Markdown", reply_markup=ADMIN_MENU)
 
 
 @require_admin
@@ -755,10 +905,11 @@ async def cmd_liststudents(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     conn = db()
-    students = conn.execute(
-        "SELECT name, parent_chat_id FROM students WHERE section_id = ? ORDER BY name",
-        (result["section_id"],),
-    ).fetchall()
+    students = conn.execute("""
+        SELECT students.id, students.name,
+               (SELECT COUNT(*) FROM parent_links WHERE parent_links.student_id = students.id) AS guardian_count
+        FROM students WHERE section_id = ? ORDER BY students.name
+    """, (result["section_id"],)).fetchall()
     conn.close()
 
     if not students:
@@ -767,7 +918,8 @@ async def cmd_liststudents(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [f"🧑‍🤝‍🧑 {result['path']}:"]
     for s in students:
-        linked = "🔗 linked" if s["parent_chat_id"] else "⚠️ not linked"
+        gc = s["guardian_count"]
+        linked = f"🔗 {gc} guardian(s)" if gc else "⚠️ no guardian linked"
         lines.append(f"  • {s['name']} — {linked}")
     await update.message.reply_text("\n".join(lines))
 
@@ -785,17 +937,18 @@ async def cmd_studentcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     conn = db()
-    student = conn.execute(
-        "SELECT name, link_code, parent_chat_id FROM students WHERE section_id = ? AND LOWER(name) LIKE LOWER(?)",
-        (result["section_id"], f"%{student_name}%"),
-    ).fetchone()
+    student = conn.execute("""
+        SELECT students.name, students.link_code,
+               (SELECT COUNT(*) FROM parent_links WHERE parent_links.student_id = students.id) AS guardian_count
+        FROM students WHERE section_id = ? AND LOWER(students.name) LIKE LOWER(?)
+    """, (result["section_id"], f"%{student_name}%")).fetchone()
     conn.close()
 
     if not student:
         await update.message.reply_text(f"No student matching '{student_name}' found in {result['path']}.")
         return
 
-    linked = "already linked to a parent" if student["parent_chat_id"] else "not yet linked"
+    linked = f"{student['guardian_count']} guardian(s) linked" if student["guardian_count"] else "not yet linked"
     await update.message.reply_text(
         f"{student['name']}: code `{student['link_code']}` ({linked})", parse_mode="Markdown"
     )
@@ -804,31 +957,333 @@ async def cmd_studentcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @require_admin
 async def cmd_absentees(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_date = context.args[0] if context.args else date.today().isoformat()
-    conn = db()
-    rows = conn.execute("""
-        SELECT students.name AS student_name, attendance.status,
-               sections.name AS section_name, grades.name AS grade_name, buildings.name AS building_name
-        FROM attendance
-        JOIN students ON attendance.student_id = students.id
-        JOIN sections ON students.section_id = sections.id
-        JOIN grades ON sections.grade_id = grades.id
-        JOIN buildings ON grades.building_id = buildings.id
-        WHERE attendance.date = ? AND attendance.status IN ('absent', 'late')
-        ORDER BY building_name, grade_name, section_name, student_name
-    """, (target_date,)).fetchall()
-    conn.close()
+    await update.message.reply_text(absentees_text(target_date))
 
-    if not rows:
-        await update.message.reply_text(f"No absences/lates recorded for {target_date}.")
+
+# --- Admin button menu: entry points ---
+
+async def admin_btn_add_class(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    context.user_data["admin_flow"] = {"action": "addclass", "step": 0, "data": {}}
+    await update.message.reply_text(
+        "🏫 What's the building name? (e.g. Main Campus)", reply_markup=FLOW_CANCEL_MENU
+    )
+
+
+async def admin_btn_add_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    sections = get_all_sections()
+    if not sections:
+        await update.message.reply_text("No classes exist yet. Use ➕ Add Class first.", reply_markup=ADMIN_MENU)
+        return
+    context.user_data["admin_flow"] = {"action": "addstudent", "step": 0, "data": {}}
+    await update.message.reply_text("🧑‍🎓 Which class?", reply_markup=build_section_picker(sections, "addstudent"))
+
+
+async def admin_btn_bulk_students(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    sections = get_all_sections()
+    if not sections:
+        await update.message.reply_text("No classes exist yet. Use ➕ Add Class first.", reply_markup=ADMIN_MENU)
+        return
+    await update.message.reply_text(
+        "📥 Which class do you want to bulk-add students to?",
+        reply_markup=build_section_picker(sections, "bulkstudents"),
+    )
+
+
+async def admin_btn_add_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    context.user_data["admin_flow"] = {"action": "addteacher", "step": 0, "data": {}}
+    await update.message.reply_text(
+        "👨‍🏫 Send the teacher's numeric Telegram ID.\n(Ask them to message @userinfobot to find it.)",
+        reply_markup=FLOW_CANCEL_MENU,
+    )
+
+
+async def admin_btn_assign_teacher(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    teachers = get_all_teachers()
+    if not teachers:
+        await update.message.reply_text("No teachers registered yet. Use 👨‍🏫 Add Teacher first.", reply_markup=ADMIN_MENU)
+        return
+    await update.message.reply_text("🔗 Which teacher?", reply_markup=build_teacher_picker(teachers, "assignteacher"))
+
+
+async def admin_btn_list_classes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    await update.message.reply_text(class_tree_text())
+
+
+async def admin_btn_list_students(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    sections = get_all_sections()
+    if not sections:
+        await update.message.reply_text("No classes exist yet.", reply_markup=ADMIN_MENU)
+        return
+    await update.message.reply_text("🧑‍🤝‍🧑 Which class?", reply_markup=build_section_picker(sections, "liststudents"))
+
+
+async def admin_btn_student_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    sections = get_all_sections()
+    if not sections:
+        await update.message.reply_text("No classes exist yet.", reply_markup=ADMIN_MENU)
+        return
+    await update.message.reply_text("🔑 Which class is the student in?", reply_markup=build_section_picker(sections, "studentcode"))
+
+
+async def admin_btn_absentees(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    await update.message.reply_text(absentees_text(date.today().isoformat()))
+
+
+async def admin_btn_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    context.user_data["admin_flow"] = {"action": "addadmin", "step": 0, "data": {}}
+    await update.message.reply_text("➕ Send the numeric Telegram ID to make an admin.", reply_markup=FLOW_CANCEL_MENU)
+
+
+async def admin_btn_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    context.user_data.pop("admin_flow", None)
+    pending_bulk_upload.pop(update.effective_user.id, None)
+    await update.message.reply_text("Cancelled.", reply_markup=ADMIN_MENU)
+
+
+# --- Admin button menu: free-text continuation (building/grade/section names,
+#     teacher id/name, admin id, student name) ---
+
+async def on_admin_flow_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    if not is_admin(telegram_id):
+        return
+    flow = context.user_data.get("admin_flow")
+    if not flow:
+        return  # not mid-flow -- nothing to do with this plain text message
+
+    text = update.message.text.strip()
+    action = flow["action"]
+    step = flow["step"]
+    data = flow["data"]
+
+    if action == "addclass":
+        if step == 0:
+            data["building"] = text
+            flow["step"] = 1
+            await update.message.reply_text("📚 What's the grade name? (e.g. Grade 9)", reply_markup=FLOW_CANCEL_MENU)
+        elif step == 1:
+            data["grade"] = text
+            flow["step"] = 2
+            await update.message.reply_text("🏷️ What's the section name? (e.g. Section A)", reply_markup=FLOW_CANCEL_MENU)
+        elif step == 2:
+            data["section"] = text
+            path_str = f"{data['building']} > {data['grade']} > {data['section']}"
+            result, error = get_or_create_class_path(path_str)
+            context.user_data.pop("admin_flow", None)
+            if error:
+                await update.message.reply_text(f"❌ {error}", reply_markup=ADMIN_MENU)
+            else:
+                await update.message.reply_text(f"✅ Class ready: {result['path']}", reply_markup=ADMIN_MENU)
         return
 
-    lines = [f"📋 Absentees/late for {target_date}:"]
-    for r in rows:
-        emoji = STATUS_EMOJI[r["status"]]
-        lines.append(
-            f"  {emoji} {r['student_name']} — {r['building_name']} > {r['grade_name']} > {r['section_name']}"
+    if action == "addstudent" and step == 1:
+        student_name = text
+        section_id = data["section_id"]
+        path = data["path"]
+        link_code = secrets.token_hex(3).upper()
+        conn = db()
+        conn.execute(
+            "INSERT INTO students (name, section_id, link_code) VALUES (?, ?, ?)",
+            (student_name, section_id, link_code),
         )
-    await update.message.reply_text("\n".join(lines))
+        conn.commit()
+        conn.close()
+        context.user_data.pop("admin_flow", None)
+        await update.message.reply_text(
+            f"✅ Added {student_name} to {path}.\n\nParent link code: `{link_code}`\n"
+            f"Give this to the parent(s)/guardian(s) — anyone with the code can send /link {link_code} to this bot.",
+            parse_mode="Markdown", reply_markup=ADMIN_MENU,
+        )
+        return
+
+    if action == "addteacher":
+        if step == 0:
+            if not text.isdigit():
+                await update.message.reply_text("Please send a numeric Telegram ID.", reply_markup=FLOW_CANCEL_MENU)
+                return
+            data["telegram_id"] = int(text)
+            flow["step"] = 1
+            await update.message.reply_text("Now send the teacher's name.", reply_markup=FLOW_CANCEL_MENU)
+        elif step == 1:
+            teacher_name = text
+            telegram_id_val = data["telegram_id"]
+            conn = db()
+            conn.execute(
+                "INSERT INTO teachers (telegram_id, name) VALUES (?, ?) ON CONFLICT (telegram_id) DO NOTHING",
+                (telegram_id_val, teacher_name),
+            )
+            conn.commit()
+            conn.close()
+            context.user_data.pop("admin_flow", None)
+            await update.message.reply_text(f"✅ Teacher added: {teacher_name} ({telegram_id_val})", reply_markup=ADMIN_MENU)
+        return
+
+    if action == "addadmin" and step == 0:
+        if not text.isdigit():
+            await update.message.reply_text("Please send a numeric Telegram ID.", reply_markup=FLOW_CANCEL_MENU)
+            return
+        new_id = int(text)
+        conn = db()
+        conn.execute("INSERT INTO admins (telegram_id) VALUES (?) ON CONFLICT (telegram_id) DO NOTHING", (new_id,))
+        conn.commit()
+        conn.close()
+        context.user_data.pop("admin_flow", None)
+        await update.message.reply_text(f"✅ {new_id} is now an admin.", reply_markup=ADMIN_MENU)
+        return
+
+
+# --- Admin button menu: inline-keyboard picks (class/teacher/student) ---
+
+async def on_admin_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    telegram_id = update.effective_user.id
+    if not is_admin(telegram_id):
+        await query.answer("Admins only.", show_alert=True)
+        return
+
+    parts = query.data.split(":")
+    kind = parts[0]
+
+    if kind == "adm_sec":
+        action, section_id = parts[1], int(parts[2])
+        path = get_section_path(section_id)
+        await query.answer()
+        if not path:
+            await query.message.reply_text("That class no longer exists.", reply_markup=ADMIN_MENU)
+            return
+
+        if action == "addstudent":
+            context.user_data["admin_flow"] = {
+                "action": "addstudent", "step": 1, "data": {"section_id": section_id, "path": path}
+            }
+            await query.message.reply_text(f"🧑‍🎓 Class: {path}\nNow send the student's full name.", reply_markup=FLOW_CANCEL_MENU)
+            return
+
+        if action == "bulkstudents":
+            pending_bulk_upload[telegram_id] = {"section_id": section_id, "path": path}
+            await query.message.reply_text(
+                f"📎 Ready. Now upload an Excel (.xlsx), CSV (.csv), or PDF (.pdf) file with one "
+                f"student name per row/line — I'll add them all to {path}."
+            )
+            return
+
+        if action == "liststudents":
+            conn = db()
+            students = conn.execute("""
+                SELECT students.id, students.name,
+                       (SELECT COUNT(*) FROM parent_links WHERE parent_links.student_id = students.id) AS guardian_count
+                FROM students WHERE section_id = ? ORDER BY students.name
+            """, (section_id,)).fetchall()
+            conn.close()
+            if not students:
+                await query.message.reply_text(f"No students in {path} yet.")
+                return
+            lines = [f"🧑‍🤝‍🧑 {path}:"]
+            for s in students:
+                gc = s["guardian_count"]
+                linked = f"🔗 {gc} guardian(s)" if gc else "⚠️ no guardian linked"
+                lines.append(f"  • {s['name']} — {linked}")
+            await query.message.reply_text("\n".join(lines))
+            return
+
+        if action == "studentcode":
+            students = get_students_in_section(section_id)
+            if not students:
+                await query.message.reply_text(f"No students in {path} yet.")
+                return
+            await query.message.reply_text(
+                f"🔑 Which student in {path}?",
+                reply_markup=build_student_picker(students, "studentcode"),
+            )
+            return
+
+        if action == "assignteacher":
+            flow = context.user_data.get("admin_flow")
+            if not flow or flow.get("action") != "assignteacher":
+                await query.message.reply_text("Session expired — please start over from the menu.", reply_markup=ADMIN_MENU)
+                return
+            teacher_row_id = flow["data"]["teacher_id"]
+            teacher_name = flow["data"]["teacher_name"]
+            conn = db()
+            conn.execute(
+                "INSERT INTO teacher_sections (teacher_id, section_id) VALUES (?, ?) "
+                "ON CONFLICT (teacher_id, section_id) DO NOTHING",
+                (teacher_row_id, section_id),
+            )
+            conn.commit()
+            conn.close()
+            context.user_data.pop("admin_flow", None)
+            await query.message.reply_text(f"✅ {teacher_name} assigned to {path}", reply_markup=ADMIN_MENU)
+            return
+        return
+
+    if kind == "adm_teacher":
+        action, teacher_row_id = parts[1], int(parts[2])
+        await query.answer()
+        if action == "assignteacher":
+            conn = db()
+            teacher = conn.execute("SELECT name FROM teachers WHERE id = ?", (teacher_row_id,)).fetchone()
+            conn.close()
+            if not teacher:
+                await query.message.reply_text("That teacher no longer exists.", reply_markup=ADMIN_MENU)
+                return
+            sections = get_all_sections()
+            if not sections:
+                await query.message.reply_text("No classes exist yet. Use ➕ Add Class first.", reply_markup=ADMIN_MENU)
+                return
+            context.user_data["admin_flow"] = {
+                "action": "assignteacher", "step": 1,
+                "data": {"teacher_id": teacher_row_id, "teacher_name": teacher["name"]},
+            }
+            await query.message.reply_text(
+                f"Which class should {teacher['name']} be assigned to?",
+                reply_markup=build_section_picker(sections, "assignteacher"),
+            )
+        return
+
+    if kind == "adm_student":
+        action, student_id = parts[1], int(parts[2])
+        await query.answer()
+        if action == "studentcode":
+            conn = db()
+            student = conn.execute("SELECT name, link_code FROM students WHERE id = ?", (student_id,)).fetchone()
+            guardian_count = 0
+            if student:
+                guardian_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM parent_links WHERE student_id = ?", (student_id,)
+                ).fetchone()["c"]
+            conn.close()
+            if not student:
+                await query.message.reply_text("That student no longer exists.", reply_markup=ADMIN_MENU)
+                return
+            linked = f"{guardian_count} guardian(s) linked" if guardian_count else "not yet linked"
+            await query.message.reply_text(
+                f"{student['name']}: code `{student['link_code']}` ({linked})",
+                parse_mode="Markdown", reply_markup=ADMIN_MENU,
+            )
+        return
 
 
 # --- Teacher handlers ---
@@ -1044,23 +1499,24 @@ async def submit_attendance(context: ContextTypes.DEFAULT_TYPE, session: dict):
         """, (student_id, session["date"], status, session["teacher_id"], datetime.now().isoformat(timespec="seconds")))
     conn.commit()
 
-    # Notify parents of absent/late students
+    # Notify every linked guardian of absent/late students (not just one).
     for student_id, status in session["statuses"].items():
         if status == "present":
             continue
-        row = conn.execute(
-            "SELECT name, parent_chat_id FROM students WHERE id = ?", (student_id,)
-        ).fetchone()
-        if row and row["parent_chat_id"]:
-            emoji = STATUS_EMOJI[status]
+        row = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+        if not row:
+            continue
+        guardians = conn.execute(
+            "SELECT chat_id FROM parent_links WHERE student_id = ?", (student_id,)
+        ).fetchall()
+        if not guardians:
+            continue
+        message = notification_text(row["name"], status, session["section_path"], session["date"])
+        for g in guardians:
             try:
-                await context.bot.send_message(
-                    chat_id=row["parent_chat_id"],
-                    text=f"{emoji} {row['name']} was marked {status.upper()} today "
-                         f"in {session['section_path']} ({session['date']}).",
-                )
+                await context.bot.send_message(chat_id=g["chat_id"], text=message)
             except Exception as e:
-                print(f"[notify] Failed to notify parent of student {student_id}: {e}")
+                print(f"[notify] Failed to notify guardian {g['chat_id']} of student {student_id}: {e}")
     conn.close()
 
 
@@ -1071,23 +1527,30 @@ async def try_link_parent(update: Update, code: str):
     chat_id = update.effective_chat.id
 
     conn = db()
-    student = conn.execute("SELECT id, name, parent_chat_id FROM students WHERE link_code = ?", (code,)).fetchone()
+    student = conn.execute("SELECT id, name FROM students WHERE link_code = ?", (code,)).fetchone()
     if not student:
         await update.message.reply_text("❌ That code isn't valid. Please double-check it with the school.")
         conn.close()
         return
 
-    if student["parent_chat_id"]:
-        await update.message.reply_text(f"This code is already linked to a parent account for {student['name']}.")
+    already = conn.execute(
+        "SELECT 1 FROM parent_links WHERE student_id = ? AND chat_id = ?", (student["id"], chat_id)
+    ).fetchone()
+    if already:
+        await update.message.reply_text(f"You're already linked to {student['name']}.")
         conn.close()
         return
 
-    conn.execute("UPDATE students SET parent_chat_id = ? WHERE id = ?", (chat_id, student["id"]))
+    conn.execute(
+        "INSERT INTO parent_links (student_id, chat_id) VALUES (?, ?) ON CONFLICT (student_id, chat_id) DO NOTHING",
+        (student["id"], chat_id),
+    )
     conn.commit()
     conn.close()
 
     await update.message.reply_text(
-        f"✅ Linked! You'll now be notified here if {student['name']} is marked absent or late."
+        f"✅ Linked! You'll now be notified here if {student['name']} is marked absent or late.\n\n"
+        f"Other family members can link too — just send the same code with /link."
     )
 
 
@@ -1107,6 +1570,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("addadmin", cmd_addadmin))
     app.add_handler(CommandHandler("addclass", cmd_addclass))
@@ -1121,9 +1585,33 @@ def main():
     app.add_handler(CommandHandler("myclasses", cmd_myclasses))
     app.add_handler(CommandHandler("attendance", cmd_attendance))
     app.add_handler(CommandHandler("link", cmd_link))
+
+    # Callback (inline button) handlers
     app.add_handler(CallbackQueryHandler(on_attendance_button, pattern="^(att|attsubmit):"))
     app.add_handler(CallbackQueryHandler(on_pickclass, pattern="^pickclass:"))
-    app.add_handler(MessageHandler(filters.Regex(f"^{MY_CLASSES_LABEL}$"), on_myclasses_button_text))
+    app.add_handler(CallbackQueryHandler(on_admin_pick, pattern="^adm_(sec|teacher|student):"))
+
+    # Teacher reply-keyboard button
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(MY_CLASSES_LABEL)}$"), on_myclasses_button_text))
+
+    # Admin reply-keyboard buttons (checked before the generic flow-text handler)
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_CLASS)}$"), admin_btn_add_class))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_STUDENT)}$"), admin_btn_add_student))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_BULK_STUDENTS)}$"), admin_btn_bulk_students))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_TEACHER)}$"), admin_btn_add_teacher))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ASSIGN_TEACHER)}$"), admin_btn_assign_teacher))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_LIST_CLASSES)}$"), admin_btn_list_classes))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_LIST_STUDENTS)}$"), admin_btn_list_students))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_STUDENT_CODE)}$"), admin_btn_student_code))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ABSENTEES)}$"), admin_btn_absentees))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_ADMIN)}$"), admin_btn_add_admin))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCEL)}$"), admin_btn_cancel))
+
+    # Generic continuation handler for admin flows -- lower priority group so
+    # the exact-match button handlers above always win first.
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_admin_flow_text), group=1)
+
+    # File uploads for bulk student import
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
     print("School attendance bot running.")
