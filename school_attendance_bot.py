@@ -21,9 +21,14 @@ PERSISTENT STORAGE:
   file (DB_PATH) for easy local testing, but that file gets WIPED on most
   free hosting redeploys. For a real deployment, set DATABASE_URL.
 
+  Set TG_BOT_TOKEN and DATABASE_URL as real environment variables on your
+  host (e.g. Render's Environment tab) rather than committing a .env file
+  to your repo -- this keeps your credentials out of git history.
+
 SETUP:
   pip install -r requirements.txt
-  Add to .env (local) or your platform's environment variables (deployed):
+  Add to .env (local only, never commit this file) or your platform's
+  environment variables (deployed):
     TG_BOT_TOKEN=       (from @BotFather)
     DATABASE_URL=       (optional but recommended for deployment -- a
                           Postgres connection string, e.g. from Neon.tech's
@@ -43,9 +48,15 @@ ADMIN COMMANDS:
       Example: /addclass Main Campus > Grade 9 > Section A
 
   /addstudent <Building > Grade > Section> | <Student Full Name>
-      Adds a student to an EXISTING class path. Returns a parent link
-      code -- give this to the student's parent/guardian.
+      Adds a single student to an EXISTING class path. Returns a parent
+      link code -- give this to the student's parent/guardian.
       Example: /addstudent Main Campus > Grade 9 > Section A | Selam Bekele
+
+  /addstudents <Building > Grade > Section>
+      Bulk-add students to an EXISTING class. After running this, upload
+      an Excel (.xlsx), CSV (.csv), or PDF (.pdf) file with one student
+      name per row/line. The bot adds them all and replies with every
+      parent link code.
 
   /addteacher <numeric telegram id> <Teacher Name>
       Registers a teacher (they still need to /start the bot themselves
@@ -69,11 +80,15 @@ ADMIN COMMANDS:
 
 TEACHER COMMANDS:
   /myclasses
-      Lists the classes this teacher is assigned to.
+      Shows the classes this teacher is assigned to as tappable buttons.
+      Tapping a class immediately starts attendance for it -- no typing
+      needed. Teachers also see a persistent "📋 My Classes" button after
+      /start, which does the same thing.
 
   /attendance <Building > Grade > Section>
-      Starts roll call: one message, a button per student (defaults to
-      Present), tap to cycle Present -> Absent -> Late, then Submit.
+      Starts roll call directly by typing the class path: one message, a
+      button per student (defaults to Present), tap to cycle Present ->
+      Absent -> Late, then Submit.
 
 PARENT / GUARDIAN:
   /link <code>
@@ -86,17 +101,26 @@ PARENT / GUARDIAN:
 """
 
 import os
+import io
+import csv
 import sqlite3
 import secrets
 import threading
 from datetime import datetime, date
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+)
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 
@@ -114,10 +138,20 @@ if USE_POSTGRES:
 STATUS_CYCLE = ["present", "absent", "late"]
 STATUS_EMOJI = {"present": "✅", "absent": "❌", "late": "🕒"}
 
+MY_CLASSES_LABEL = "📋 My Classes"
+TEACHER_MENU = ReplyKeyboardMarkup([[MY_CLASSES_LABEL]], resize_keyboard=True)
+
+# Row headers to skip when bulk-importing student names from a file.
+NAME_HEADER_WORDS = {"name", "student", "student name", "full name", "students"}
+
 # In-memory roll-call sessions while a teacher is actively marking attendance.
 # key: short token -> {"section_id", "section_path", "date", "teacher_id",
 #                       "students": [(id, name), ...], "statuses": {student_id: status}}
 pending_attendance = {}
+
+# In-memory bulk-upload requests: admin telegram_id -> {"section_id", "path"}
+# Set by /addstudents, consumed by the next document the admin sends.
+pending_bulk_upload = {}
 
 
 # --- Health-check HTTP server (for free-tier "Web Service" hosting) ---
@@ -268,6 +302,13 @@ def any_admin_exists() -> bool:
     return row is not None
 
 
+def is_teacher(telegram_id: int) -> bool:
+    conn = db()
+    row = conn.execute("SELECT 1 FROM teachers WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    conn.close()
+    return row is not None
+
+
 # --- Class path helpers ("Building > Grade > Section") ---
 # Name matching is done via LOWER(...) = LOWER(?) rather than relying on a
 # case-insensitive collation, so the exact same SQL works on both SQLite
@@ -340,6 +381,22 @@ def find_class_path(path_str: str):
     return {"section_id": row["section_id"], "path": path_str}, None
 
 
+def get_section_path(section_id: int):
+    """Look up the full 'Building > Grade > Section' string from a section id."""
+    conn = db()
+    row = conn.execute("""
+        SELECT buildings.name AS building_name, grades.name AS grade_name, sections.name AS section_name
+        FROM sections
+        JOIN grades ON sections.grade_id = grades.id
+        JOIN buildings ON grades.building_id = buildings.id
+        WHERE sections.id = ?
+    """, (section_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return f"{row['building_name']} > {row['grade_name']} > {row['section_name']}"
+
+
 def class_tree_text() -> str:
     conn = db()
     buildings = conn.execute("SELECT * FROM buildings ORDER BY name").fetchall()
@@ -387,23 +444,32 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_admin(telegram_id):
         await update.message.reply_text("Welcome back, admin. Send /help for commands.")
-    else:
+        return
+
+    if is_teacher(telegram_id):
         await update.message.reply_text(
-            "👋 Welcome! If you're a parent, use /link <code> with the code the school gave you.\n"
-            "If you're a teacher, ask an admin to add you with /addteacher."
+            "👋 Welcome back! Tap the button below to see your classes and take attendance.",
+            reply_markup=TEACHER_MENU,
         )
+        return
+
+    await update.message.reply_text(
+        "👋 Welcome! If you're a parent, use /link <code> with the code the school gave you.\n"
+        "If you're a teacher, ask an admin to add you with /addteacher."
+    )
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    lines = ["/myclasses - see your assigned classes (teachers)",
-             "/attendance <Building > Grade > Section> - take attendance",
+    lines = ["/myclasses - see your assigned classes as buttons (teachers)",
+             "/attendance <Building > Grade > Section> - take attendance by typing the class",
              "/link <code> - parents: link yourself to your child"]
     if is_admin(telegram_id):
         lines = [
             "/addadmin <telegram_id>",
             "/addclass <Building > Grade > Section>",
             "/addstudent <Building > Grade > Section> | <Student Name>",
+            "/addstudents <Building > Grade > Section> - then upload an Excel/CSV/PDF list",
             "/addteacher <numeric id> <Teacher Name>",
             "/assignteacher <numeric id> <Building > Grade > Section>",
             "/listclasses",
@@ -479,6 +545,137 @@ async def cmd_addstudent(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Give this to the parent — they send /link {link_code} to this bot to get absence notifications.",
         parse_mode="Markdown",
     )
+
+
+@require_admin
+async def cmd_addstudents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bulk-add: sets up a pending upload, then on_document does the actual import."""
+    path_str = " ".join(context.args)
+    if not path_str:
+        await update.message.reply_text(
+            "Usage: /addstudents Building > Grade > Section\n"
+            "Then upload an Excel (.xlsx), CSV (.csv), or PDF (.pdf) file with one "
+            "student name per row/line."
+        )
+        return
+
+    result, error = find_class_path(path_str)
+    if error:
+        await update.message.reply_text(f"❌ {error}")
+        return
+
+    pending_bulk_upload[update.effective_user.id] = result
+    await update.message.reply_text(
+        f"📎 Ready. Now upload an Excel (.xlsx), CSV (.csv), or PDF (.pdf) file with one "
+        f"student name per row/line — I'll add them all to {result['path']}."
+    )
+
+
+def _extract_names_from_xlsx(file_bytes: bytes):
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+    names = []
+    for row in ws.iter_rows(values_only=True):
+        if not row:
+            continue
+        cell = row[0]
+        if cell is None:
+            continue
+        name = str(cell).strip()
+        if name and name.lower() not in NAME_HEADER_WORDS:
+            names.append(name)
+    return names
+
+
+def _extract_names_from_csv(file_bytes: bytes):
+    text = file_bytes.decode("utf-8", errors="ignore")
+    reader = csv.reader(io.StringIO(text))
+    names = []
+    for row in reader:
+        if not row:
+            continue
+        name = row[0].strip()
+        if name and name.lower() not in NAME_HEADER_WORDS:
+            names.append(name)
+    return names
+
+
+def _extract_names_from_pdf(file_bytes: bytes):
+    import pdfplumber
+    names = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            for line in text.split("\n"):
+                line = line.strip()
+                if line and line.lower() not in NAME_HEADER_WORDS:
+                    names.append(line)
+    return names
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+    pending = pending_bulk_upload.get(telegram_id)
+    if not pending:
+        # Not expecting a file from this user right now -- ignore silently.
+        return
+
+    document = update.message.document
+    filename = document.file_name or ""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+
+    if ext not in ("xlsx", "csv", "pdf"):
+        await update.message.reply_text("❌ Unsupported file type. Please send a .xlsx, .csv, or .pdf file.")
+        return
+
+    tg_file = await document.get_file()
+    file_bytes = bytes(await tg_file.download_as_bytearray())
+
+    try:
+        if ext == "xlsx":
+            names = _extract_names_from_xlsx(file_bytes)
+        elif ext == "csv":
+            names = _extract_names_from_csv(file_bytes)
+        else:
+            names = _extract_names_from_pdf(file_bytes)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Couldn't read that file: {e}")
+        return
+
+    if not names:
+        await update.message.reply_text(
+            "❌ No student names found in that file. Make sure each name is in its own "
+            "row (Excel/CSV) or its own line (PDF)."
+        )
+        return
+
+    conn = db()
+    added = []
+    for name in names:
+        link_code = secrets.token_hex(3).upper()
+        conn.execute(
+            "INSERT INTO students (name, section_id, link_code) VALUES (?, ?, ?)",
+            (name, pending["section_id"], link_code),
+        )
+        added.append((name, link_code))
+    conn.commit()
+    conn.close()
+
+    pending_bulk_upload.pop(telegram_id, None)
+
+    header = f"✅ Added {len(added)} students to {pending['path']}:\n"
+    body_lines = [f"  • {name} — `{code}`" for name, code in added]
+
+    # Telegram caps messages at ~4096 chars -- chunk the codes list if long.
+    chunk = header
+    for line in body_lines:
+        if len(chunk) + len(line) + 1 > 3500:
+            await update.message.reply_text(chunk, parse_mode="Markdown")
+            chunk = ""
+        chunk += line + "\n"
+    if chunk:
+        await update.message.reply_text(chunk, parse_mode="Markdown")
 
 
 @require_admin
@@ -636,6 +833,15 @@ async def cmd_absentees(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Teacher handlers ---
 
+def build_myclasses_keyboard(rows):
+    """rows: list of dicts with building_name/grade_name/section_name/section_id."""
+    buttons = []
+    for r in rows:
+        label = f"{r['building_name']} > {r['grade_name']} > {r['section_name']}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"pickclass:{r['section_id']}")])
+    return InlineKeyboardMarkup(buttons)
+
+
 async def cmd_myclasses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     conn = db()
@@ -646,7 +852,8 @@ async def cmd_myclasses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     rows = conn.execute("""
-        SELECT buildings.name AS building_name, grades.name AS grade_name, sections.name AS section_name
+        SELECT sections.id AS section_id,
+               buildings.name AS building_name, grades.name AS grade_name, sections.name AS section_name
         FROM teacher_sections
         JOIN sections ON teacher_sections.section_id = sections.id
         JOIN grades ON sections.grade_id = grades.id
@@ -660,11 +867,15 @@ async def cmd_myclasses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You're not assigned to any classes yet. Ask an admin to /assignteacher you.")
         return
 
-    lines = ["Your classes:"]
-    for r in rows:
-        lines.append(f"  • {r['building_name']} > {r['grade_name']} > {r['section_name']}")
-    lines.append("\nUse /attendance <class> to take attendance.")
-    await update.message.reply_text("\n".join(lines))
+    await update.message.reply_text(
+        "Tap a class to start attendance:",
+        reply_markup=build_myclasses_keyboard(rows),
+    )
+
+
+async def on_myclasses_button_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the persistent '📋 My Classes' reply-keyboard button."""
+    await cmd_myclasses(update, context)
 
 
 def build_attendance_keyboard(token: str):
@@ -676,6 +887,30 @@ def build_attendance_keyboard(token: str):
         rows.append([InlineKeyboardButton(f"{emoji} {student_name}", callback_data=f"att:{token}:{student_id}")])
     rows.append([InlineKeyboardButton("✅ Submit Attendance", callback_data=f"attsubmit:{token}")])
     return InlineKeyboardMarkup(rows)
+
+
+def _start_attendance_session(section_id: int, section_path: str, teacher_id: int):
+    """Shared by /attendance and the 'pick a class' button. Returns (token, error)."""
+    conn = db()
+    students = conn.execute(
+        "SELECT id, name FROM students WHERE section_id = ? ORDER BY name",
+        (section_id,),
+    ).fetchall()
+    conn.close()
+
+    if not students:
+        return None, f"No students in {section_path} yet."
+
+    token = secrets.token_hex(4)
+    pending_attendance[token] = {
+        "section_id": section_id,
+        "section_path": section_path,
+        "date": date.today().isoformat(),
+        "teacher_id": teacher_id,
+        "students": [(s["id"], s["name"]) for s in students],
+        "statuses": {s["id"]: "present" for s in students},
+    }
+    return token, None
 
 
 async def cmd_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -705,29 +940,60 @@ async def cmd_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("You're not assigned to this class.")
             conn.close()
             return
-
-    students = conn.execute(
-        "SELECT id, name FROM students WHERE section_id = ? ORDER BY name",
-        (result["section_id"],),
-    ).fetchall()
     conn.close()
 
-    if not students:
-        await update.message.reply_text(f"No students in {result['path']} yet.")
+    token, error = _start_attendance_session(result["section_id"], result["path"], telegram_id)
+    if error:
+        await update.message.reply_text(error)
         return
-
-    token = secrets.token_hex(4)
-    pending_attendance[token] = {
-        "section_id": result["section_id"],
-        "section_path": result["path"],
-        "date": date.today().isoformat(),
-        "teacher_id": telegram_id,
-        "students": [(s["id"], s["name"]) for s in students],
-        "statuses": {s["id"]: "present" for s in students},
-    }
 
     await update.message.reply_text(
         f"📋 Attendance for {result['path']} — {date.today().isoformat()}\n"
+        f"Tap a name to cycle Present → Absent → Late. Everyone starts as Present.",
+        reply_markup=build_attendance_keyboard(token),
+    )
+
+
+async def on_pickclass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles tapping a class button from /myclasses -- starts attendance directly."""
+    query = update.callback_query
+    telegram_id = update.effective_user.id
+    section_id = int(query.data.split(":")[1])
+
+    section_path = get_section_path(section_id)
+    if not section_path:
+        await query.answer("That class no longer exists.", show_alert=True)
+        return
+
+    conn = db()
+    teacher = conn.execute("SELECT id FROM teachers WHERE telegram_id = ?", (telegram_id,)).fetchone()
+    is_this_admin = is_admin(telegram_id)
+
+    if not teacher and not is_this_admin:
+        conn.close()
+        await query.answer("You're not registered as a teacher.", show_alert=True)
+        return
+
+    if teacher and not is_this_admin:
+        assigned = conn.execute(
+            "SELECT 1 FROM teacher_sections WHERE teacher_id = ? AND section_id = ?",
+            (teacher["id"], section_id),
+        ).fetchone()
+        if not assigned:
+            conn.close()
+            await query.answer("You're not assigned to this class.", show_alert=True)
+            return
+    conn.close()
+
+    token, error = _start_attendance_session(section_id, section_path, telegram_id)
+    if error:
+        await query.answer()
+        await query.message.reply_text(error)
+        return
+
+    await query.answer()
+    await query.message.reply_text(
+        f"📋 Attendance for {section_path} — {date.today().isoformat()}\n"
         f"Tap a name to cycle Present → Absent → Late. Everyone starts as Present.",
         reply_markup=build_attendance_keyboard(token),
     )
@@ -845,6 +1111,7 @@ def main():
     app.add_handler(CommandHandler("addadmin", cmd_addadmin))
     app.add_handler(CommandHandler("addclass", cmd_addclass))
     app.add_handler(CommandHandler("addstudent", cmd_addstudent))
+    app.add_handler(CommandHandler("addstudents", cmd_addstudents))
     app.add_handler(CommandHandler("addteacher", cmd_addteacher))
     app.add_handler(CommandHandler("assignteacher", cmd_assignteacher))
     app.add_handler(CommandHandler("listclasses", cmd_listclasses))
@@ -855,6 +1122,9 @@ def main():
     app.add_handler(CommandHandler("attendance", cmd_attendance))
     app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(CallbackQueryHandler(on_attendance_button, pattern="^(att|attsubmit):"))
+    app.add_handler(CallbackQueryHandler(on_pickclass, pattern="^pickclass:"))
+    app.add_handler(MessageHandler(filters.Regex(f"^{MY_CLASSES_LABEL}$"), on_myclasses_button_text))
+    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
     print("School attendance bot running.")
     app.run_polling()
