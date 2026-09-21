@@ -1,0 +1,13 @@
+name: Keep Website Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Website URL
+        run: curl -I https://attendance-system-jbel.onrender.com
