@@ -47,8 +47,13 @@ FIRST RUN:
 
 ADMIN -- BUTTON MENU (shown automatically after /start, or via /menu):
   ➕ Add Class            -- walks you through Building / Grade / Section
+  📦 Bulk Add Classes     -- e.g. Waliya > Grade 6 > Section A to H creates
+                             Section A, B, C ... H in one go
+  ✏️ Edit Class           -- pick a class, rename its building/grade/section
   🧑‍🎓 Add Student          -- pick a class, then send the student's name
   📥 Bulk Add Students    -- pick a class, then upload an Excel/CSV/PDF
+  ✏️ Edit Student         -- pick a class + student, then Rename or
+                             Move to Another Class
   👨‍🏫 Add Teacher          -- send their numeric Telegram ID + name
   🔗 Assign Teacher       -- pick a teacher, then pick a class
   📚 List Classes         -- shows the whole building/grade/section tree
@@ -61,8 +66,12 @@ ADMIN -- BUTTON MENU (shown automatically after /start, or via /menu):
 ADMIN -- SLASH COMMANDS (still work, for typing instead of tapping):
   /addadmin <telegram_id>
   /addclass <Building > Grade > Section>
+  /addclasses <Building > Grade > Section A to H>   (bulk letter range)
+  /editclass <Old Path> | <New Path>
   /addstudent <Building > Grade > Section> | <Student Full Name>
   /addstudents <Building > Grade > Section>   (then upload a file)
+  /editstudent <Building > Grade > Section> | <Old Name> | <New Name>
+  /movestudent <Old Path> | <Student Name> | <New Path>
   /addteacher <numeric telegram id> <Teacher Name>
   /assignteacher <numeric telegram id> <Building > Grade > Section>
   /listclasses
@@ -134,8 +143,11 @@ MY_CLASSES_LABEL = "📋 My Classes"
 TEACHER_MENU = ReplyKeyboardMarkup([[MY_CLASSES_LABEL]], resize_keyboard=True)
 
 BTN_ADD_CLASS = "➕ Add Class"
+BTN_BULK_CLASSES = "📦 Bulk Add Classes"
+BTN_EDIT_CLASS = "✏️ Edit Class"
 BTN_ADD_STUDENT = "🧑‍🎓 Add Student"
 BTN_BULK_STUDENTS = "📥 Bulk Add Students"
+BTN_EDIT_STUDENT = "✏️ Edit Student"
 BTN_ADD_TEACHER = "👨‍🏫 Add Teacher"
 BTN_ASSIGN_TEACHER = "🔗 Assign Teacher"
 BTN_LIST_CLASSES = "📚 List Classes"
@@ -147,11 +159,13 @@ BTN_CANCEL = "❌ Cancel"
 
 ADMIN_MENU = ReplyKeyboardMarkup(
     [
-        [BTN_ADD_CLASS, BTN_ADD_STUDENT],
-        [BTN_BULK_STUDENTS, BTN_ADD_TEACHER],
-        [BTN_ASSIGN_TEACHER, BTN_LIST_CLASSES],
-        [BTN_LIST_STUDENTS, BTN_STUDENT_CODE],
-        [BTN_ABSENTEES, BTN_ADD_ADMIN],
+        [BTN_ADD_CLASS, BTN_BULK_CLASSES],
+        [BTN_EDIT_CLASS, BTN_ADD_STUDENT],
+        [BTN_BULK_STUDENTS, BTN_EDIT_STUDENT],
+        [BTN_ADD_TEACHER, BTN_ASSIGN_TEACHER],
+        [BTN_LIST_CLASSES, BTN_LIST_STUDENTS],
+        [BTN_STUDENT_CODE, BTN_ABSENTEES],
+        [BTN_ADD_ADMIN],
         [BTN_CANCEL],
     ],
     resize_keyboard=True,
@@ -416,6 +430,64 @@ def find_class_path(path_str: str):
     return {"section_id": row["section_id"], "path": path_str}, None
 
 
+def parse_section_range(section_str: str):
+    """Detect patterns like 'Section A to H' or 'Section A-H' and expand them
+    into ['Section A', 'Section B', ..., 'Section H']. Returns None if the
+    text isn't a letter range (caller should treat it as a single name)."""
+    m = re.match(r'^(.*?)\s*([A-Za-z])\s*(?:to|-)\s*([A-Za-z])\s*$', section_str.strip(), re.IGNORECASE)
+    if not m:
+        return None
+    prefix, start_letter, end_letter = m.groups()
+    start_letter, end_letter = start_letter.upper(), end_letter.upper()
+    start_ord, end_ord = ord(start_letter), ord(end_letter)
+    if start_ord > end_ord or (end_ord - start_ord) > 25:
+        return None
+    prefix = prefix.strip()
+    names = []
+    for code in range(start_ord, end_ord + 1):
+        letter = chr(code)
+        names.append(f"{prefix} {letter}".strip() if prefix else letter)
+    return names
+
+
+def find_class_ids(path_str: str):
+    """Like find_class_path, but returns the building/grade/section ids too
+    (needed for renaming a level that's shared with other classes)."""
+    parsed = parse_path(path_str)
+    if not parsed:
+        return None, "Format must be: Building > Grade > Section"
+    building_name, grade_name, section_name = parsed
+    conn = db()
+    row = conn.execute("""
+        SELECT buildings.id AS building_id, grades.id AS grade_id, sections.id AS section_id
+        FROM sections
+        JOIN grades ON sections.grade_id = grades.id
+        JOIN buildings ON grades.building_id = buildings.id
+        WHERE LOWER(buildings.name) = LOWER(?) AND LOWER(grades.name) = LOWER(?) AND LOWER(sections.name) = LOWER(?)
+    """, (building_name, grade_name, section_name)).fetchone()
+    conn.close()
+    if not row:
+        return None, f"No class found matching '{path_str}'."
+    return {"building_id": row["building_id"], "grade_id": row["grade_id"], "section_id": row["section_id"]}, None
+
+
+def get_class_ids_and_names(section_id: int):
+    """Given a section id, return its building/grade ids and all three names
+    -- used to seed the Edit Class wizard."""
+    conn = db()
+    row = conn.execute("""
+        SELECT buildings.id AS building_id, buildings.name AS building_name,
+               grades.id AS grade_id, grades.name AS grade_name,
+               sections.name AS section_name
+        FROM sections
+        JOIN grades ON sections.grade_id = grades.id
+        JOIN buildings ON grades.building_id = buildings.id
+        WHERE sections.id = ?
+    """, (section_id,)).fetchone()
+    conn.close()
+    return row
+
+
 def get_section_path(section_id: int):
     """Look up the full 'Building > Grade > Section' string from a section id."""
     conn = db()
@@ -538,6 +610,19 @@ def build_section_picker(sections, action):
     return InlineKeyboardMarkup(buttons)
 
 
+def build_section_picker_with_extra(sections, action, extra):
+    """Like build_section_picker, but packs an extra id (e.g. a student id)
+    into the callback data -- used by the 'move student' flow."""
+    buttons = [
+        [InlineKeyboardButton(
+            f"{s['building_name']} > {s['grade_name']} > {s['section_name']}",
+            callback_data=f"adm_sec:{action}:{extra}:{s['section_id']}",
+        )]
+        for s in sections
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
 def build_teacher_picker(teachers, action):
     buttons = [
         [InlineKeyboardButton(f"{t['name']} ({t['telegram_id']})", callback_data=f"adm_teacher:{action}:{t['id']}")]
@@ -617,8 +702,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines = [
             "/addadmin <telegram_id>",
             "/addclass <Building > Grade > Section>",
+            "/addclasses <Building > Grade > Section A to H> - bulk-create lettered sections",
+            "/editclass <Old Path> | <New Path> - rename a building/grade/section",
             "/addstudent <Building > Grade > Section> | <Student Name>",
             "/addstudents <Building > Grade > Section> - then upload an Excel/CSV/PDF list",
+            "/editstudent <Building > Grade > Section> | <Old Name> | <New Name>",
+            "/movestudent <Old Path> | <Student Name> | <New Path>",
             "/addteacher <numeric id> <Teacher Name>",
             "/assignteacher <numeric id> <Building > Grade > Section>",
             "/listclasses",
@@ -659,6 +748,141 @@ async def cmd_addclass(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ {error}")
         return
     await update.message.reply_text(f"✅ Class ready: {result['path']}")
+
+
+@require_admin
+async def cmd_addclasses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bulk-create classes from a letter range, e.g. Waliya > Grade 6 > Section A to H."""
+    path_str = " ".join(context.args)
+    parsed = parse_path(path_str)
+    if not parsed:
+        await update.message.reply_text(
+            "Usage: /addclasses Building > Grade > Section A to H\n"
+            "Example: /addclasses Waliya > Grade 6 > Section A to H"
+        )
+        return
+    building, grade, section_spec = parsed
+    section_names = parse_section_range(section_spec)
+    if not section_names:
+        await update.message.reply_text(
+            "❌ Couldn't find a letter range like 'Section A to H' in that. "
+            "For a single class, use /addclass instead."
+        )
+        return
+
+    created = []
+    for section_name in section_names:
+        result, error = get_or_create_class_path(f"{building} > {grade} > {section_name}")
+        if not error:
+            created.append(result["path"])
+
+    if not created:
+        await update.message.reply_text("❌ Couldn't create any classes.")
+        return
+    lines = ["✅ Created:"] + [f"  • {p}" for p in created]
+    await update.message.reply_text("\n".join(lines))
+
+
+@require_admin
+async def cmd_editclass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rename a class: /editclass Old Building > Old Grade > Old Section | New Building > New Grade > New Section"""
+    full = " ".join(context.args)
+    if "|" not in full:
+        await update.message.reply_text(
+            "Usage: /editclass Old Building > Old Grade > Old Section | New Building > New Grade > New Section"
+        )
+        return
+    old_path, new_path = (p.strip() for p in full.split("|", 1))
+    ids, error = find_class_ids(old_path)
+    if error:
+        await update.message.reply_text(f"❌ {error}")
+        return
+    new_parsed = parse_path(new_path)
+    if not new_parsed:
+        await update.message.reply_text("❌ New path format must be: Building > Grade > Section")
+        return
+    new_building, new_grade, new_section = new_parsed
+
+    conn = db()
+    try:
+        conn.execute("UPDATE buildings SET name = ? WHERE id = ?", (new_building, ids["building_id"]))
+        conn.execute("UPDATE grades SET name = ? WHERE id = ?", (new_grade, ids["grade_id"]))
+        conn.execute("UPDATE sections SET name = ? WHERE id = ?", (new_section, ids["section_id"]))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        await update.message.reply_text(f"❌ Couldn't save changes: {e}")
+        return
+    conn.close()
+    await update.message.reply_text(f"✅ Updated to: {new_building} > {new_grade} > {new_section}")
+
+
+@require_admin
+async def cmd_editstudent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rename a student: /editstudent Building > Grade > Section | Old Name | New Name"""
+    full = " ".join(context.args)
+    parts = [p.strip() for p in full.split("|")]
+    if len(parts) != 3:
+        await update.message.reply_text(
+            "Usage: /editstudent Building > Grade > Section | Old Student Name | New Student Name"
+        )
+        return
+    path_str, old_name, new_name = parts
+    result, error = find_class_path(path_str)
+    if error:
+        await update.message.reply_text(f"❌ {error}")
+        return
+
+    conn = db()
+    student = conn.execute(
+        "SELECT id, name FROM students WHERE section_id = ? AND LOWER(name) = LOWER(?)",
+        (result["section_id"], old_name),
+    ).fetchone()
+    if not student:
+        conn.close()
+        await update.message.reply_text(f"No student named '{old_name}' found in {result['path']}.")
+        return
+    conn.execute("UPDATE students SET name = ? WHERE id = ?", (new_name, student["id"]))
+    conn.commit()
+    conn.close()
+    await update.message.reply_text(f"✅ Renamed {old_name} → {new_name} in {result['path']}.")
+
+
+@require_admin
+async def cmd_movestudent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Move a student to a different class:
+    /movestudent Old Building > Old Grade > Old Section | Student Name | New Building > New Grade > New Section"""
+    full = " ".join(context.args)
+    parts = [p.strip() for p in full.split("|")]
+    if len(parts) != 3:
+        await update.message.reply_text(
+            "Usage: /movestudent Old Building > Old Grade > Old Section | Student Name | "
+            "New Building > New Grade > New Section"
+        )
+        return
+    old_path, student_name, new_path = parts
+    old_result, error = find_class_path(old_path)
+    if error:
+        await update.message.reply_text(f"❌ {error}")
+        return
+    new_result, error = find_class_path(new_path)
+    if error:
+        await update.message.reply_text(f"❌ New class: {error}")
+        return
+
+    conn = db()
+    student = conn.execute(
+        "SELECT id FROM students WHERE section_id = ? AND LOWER(name) = LOWER(?)",
+        (old_result["section_id"], student_name),
+    ).fetchone()
+    if not student:
+        conn.close()
+        await update.message.reply_text(f"No student named '{student_name}' found in {old_result['path']}.")
+        return
+    conn.execute("UPDATE students SET section_id = ? WHERE id = ?", (new_result["section_id"], student["id"]))
+    conn.commit()
+    conn.close()
+    await update.message.reply_text(f"✅ Moved {student_name}: {old_result['path']} → {new_result['path']}.")
 
 
 @require_admin
@@ -971,6 +1195,35 @@ async def admin_btn_add_class(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def admin_btn_bulk_classes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    context.user_data["admin_flow"] = {"action": "bulkclasses", "step": 0, "data": {}}
+    await update.message.reply_text(
+        "📦 What's the building name? (e.g. Waliya)", reply_markup=FLOW_CANCEL_MENU
+    )
+
+
+async def admin_btn_edit_class(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    sections = get_all_sections()
+    if not sections:
+        await update.message.reply_text("No classes exist yet. Use ➕ Add Class first.", reply_markup=ADMIN_MENU)
+        return
+    await update.message.reply_text("✏️ Which class do you want to edit?", reply_markup=build_section_picker(sections, "editclass"))
+
+
+async def admin_btn_edit_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    sections = get_all_sections()
+    if not sections:
+        await update.message.reply_text("No classes exist yet.", reply_markup=ADMIN_MENU)
+        return
+    await update.message.reply_text("✏️ Which class is the student in?", reply_markup=build_section_picker(sections, "editstudent"))
+
+
 async def admin_btn_add_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -1098,6 +1351,82 @@ async def on_admin_flow_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text(f"✅ Class ready: {result['path']}", reply_markup=ADMIN_MENU)
         return
 
+    if action == "bulkclasses":
+        if step == 0:
+            data["building"] = text
+            flow["step"] = 1
+            await update.message.reply_text("📚 What's the grade name? (e.g. Grade 6)", reply_markup=FLOW_CANCEL_MENU)
+        elif step == 1:
+            data["grade"] = text
+            flow["step"] = 2
+            await update.message.reply_text(
+                "🏷️ Send the section range, e.g. 'Section A to H' — I'll create one class per letter.\n"
+                "(You can also send a single section name if you only need one.)",
+                reply_markup=FLOW_CANCEL_MENU,
+            )
+        elif step == 2:
+            section_names = parse_section_range(text) or [text]
+            created = []
+            for section_name in section_names:
+                result, error = get_or_create_class_path(f"{data['building']} > {data['grade']} > {section_name}")
+                if not error:
+                    created.append(result["path"])
+            context.user_data.pop("admin_flow", None)
+            if not created:
+                await update.message.reply_text("❌ Couldn't create any classes.", reply_markup=ADMIN_MENU)
+            else:
+                lines = ["✅ Created:"] + [f"  • {p}" for p in created]
+                await update.message.reply_text("\n".join(lines), reply_markup=ADMIN_MENU)
+        return
+
+    if action == "editclass":
+        if step == 0:
+            data["new_building"] = text
+            flow["step"] = 1
+            await update.message.reply_text(
+                f"Send the new grade name (currently: {data['old_grade']}). Send the same name to keep it unchanged.",
+                reply_markup=FLOW_CANCEL_MENU,
+            )
+        elif step == 1:
+            data["new_grade"] = text
+            flow["step"] = 2
+            await update.message.reply_text(
+                f"Send the new section name (currently: {data['old_section']}). Send the same name to keep it unchanged.",
+                reply_markup=FLOW_CANCEL_MENU,
+            )
+        elif step == 2:
+            data["new_section"] = text
+            conn = db()
+            ok, err_msg = True, ""
+            try:
+                conn.execute("UPDATE buildings SET name = ? WHERE id = ?", (data["new_building"], data["building_id"]))
+                conn.execute("UPDATE grades SET name = ? WHERE id = ?", (data["new_grade"], data["grade_id"]))
+                conn.execute("UPDATE sections SET name = ? WHERE id = ?", (data["new_section"], data["section_id"]))
+                conn.commit()
+            except Exception as e:
+                ok, err_msg = False, str(e)
+            conn.close()
+            context.user_data.pop("admin_flow", None)
+            if ok:
+                await update.message.reply_text(
+                    f"✅ Updated to: {data['new_building']} > {data['new_grade']} > {data['new_section']}",
+                    reply_markup=ADMIN_MENU,
+                )
+            else:
+                await update.message.reply_text(f"❌ Couldn't save changes: {err_msg}", reply_markup=ADMIN_MENU)
+        return
+
+    if action == "editstudent_rename" and step == 0:
+        student_id = data["student_id"]
+        old_name = data["old_name"]
+        conn = db()
+        conn.execute("UPDATE students SET name = ? WHERE id = ?", (text, student_id))
+        conn.commit()
+        conn.close()
+        context.user_data.pop("admin_flow", None)
+        await update.message.reply_text(f"✅ Renamed {old_name} → {text}.", reply_markup=ADMIN_MENU)
+        return
+
     if action == "addstudent" and step == 1:
         student_name = text
         section_id = data["section_id"]
@@ -1167,11 +1496,64 @@ async def on_admin_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kind = parts[0]
 
     if kind == "adm_sec":
-        action, section_id = parts[1], int(parts[2])
+        action = parts[1]
+        if action == "editstudentmove":
+            # adm_sec:editstudentmove:<student_id>:<new_section_id>
+            move_student_id, section_id = int(parts[2]), int(parts[3])
+        else:
+            section_id = int(parts[2])
         path = get_section_path(section_id)
         await query.answer()
         if not path:
             await query.message.reply_text("That class no longer exists.", reply_markup=ADMIN_MENU)
+            return
+
+        if action == "editstudentmove":
+            conn = db()
+            old_row = conn.execute("""
+                SELECT students.name AS student_name, students.section_id AS old_section_id
+                FROM students WHERE students.id = ?
+            """, (move_student_id,)).fetchone()
+            if not old_row:
+                conn.close()
+                await query.message.reply_text("That student no longer exists.", reply_markup=ADMIN_MENU)
+                return
+            old_path = get_section_path(old_row["old_section_id"])
+            conn.execute("UPDATE students SET section_id = ? WHERE id = ?", (section_id, move_student_id))
+            conn.commit()
+            conn.close()
+            await query.message.reply_text(
+                f"✅ Moved {old_row['student_name']}: {old_path} → {path}", reply_markup=ADMIN_MENU
+            )
+            return
+
+        if action == "editclass":
+            info = get_class_ids_and_names(section_id)
+            if not info:
+                await query.message.reply_text("That class no longer exists.", reply_markup=ADMIN_MENU)
+                return
+            context.user_data["admin_flow"] = {
+                "action": "editclass", "step": 0,
+                "data": {
+                    "building_id": info["building_id"], "grade_id": info["grade_id"], "section_id": section_id,
+                    "old_building": info["building_name"], "old_grade": info["grade_name"], "old_section": info["section_name"],
+                },
+            }
+            await query.message.reply_text(
+                f"✏️ Editing: {info['building_name']} > {info['grade_name']} > {info['section_name']}\n\n"
+                f"Send the new building name (currently: {info['building_name']}). Send the same name to keep it unchanged.",
+                reply_markup=FLOW_CANCEL_MENU,
+            )
+            return
+
+        if action == "editstudent":
+            students = get_students_in_section(section_id)
+            if not students:
+                await query.message.reply_text(f"No students in {path} yet.")
+                return
+            await query.message.reply_text(
+                f"✏️ Which student in {path}?", reply_markup=build_student_picker(students, "editstudent")
+            )
             return
 
         if action == "addstudent":
@@ -1283,6 +1665,59 @@ async def on_admin_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{student['name']}: code `{student['link_code']}` ({linked})",
                 parse_mode="Markdown", reply_markup=ADMIN_MENU,
             )
+            return
+
+        if action == "editstudent":
+            conn = db()
+            student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+            conn.close()
+            if not student:
+                await query.message.reply_text("That student no longer exists.", reply_markup=ADMIN_MENU)
+                return
+            buttons = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Rename", callback_data=f"adm_editact:rename:{student_id}")],
+                [InlineKeyboardButton("↔ Move to Another Class", callback_data=f"adm_editact:move:{student_id}")],
+            ])
+            await query.message.reply_text(f"What do you want to do with {student['name']}?", reply_markup=buttons)
+            return
+        return
+
+
+async def on_admin_editact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the Rename / Move choice shown after picking a student to edit."""
+    query = update.callback_query
+    if not is_admin(update.effective_user.id):
+        await query.answer("Admins only.", show_alert=True)
+        return
+
+    _, act, student_id_str = query.data.split(":")
+    student_id = int(student_id_str)
+    await query.answer()
+
+    conn = db()
+    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+    conn.close()
+    if not student:
+        await query.message.reply_text("That student no longer exists.", reply_markup=ADMIN_MENU)
+        return
+
+    if act == "rename":
+        context.user_data["admin_flow"] = {
+            "action": "editstudent_rename", "step": 0,
+            "data": {"student_id": student_id, "old_name": student["name"]},
+        }
+        await query.message.reply_text(f"Send the new name for {student['name']}.", reply_markup=FLOW_CANCEL_MENU)
+        return
+
+    if act == "move":
+        sections = get_all_sections()
+        if not sections:
+            await query.message.reply_text("No classes exist yet. Use ➕ Add Class first.", reply_markup=ADMIN_MENU)
+            return
+        await query.message.reply_text(
+            f"Which class should {student['name']} move to?",
+            reply_markup=build_section_picker_with_extra(sections, "editstudentmove", student_id),
+        )
         return
 
 
@@ -1574,6 +2009,10 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("addadmin", cmd_addadmin))
     app.add_handler(CommandHandler("addclass", cmd_addclass))
+    app.add_handler(CommandHandler("addclasses", cmd_addclasses))
+    app.add_handler(CommandHandler("editclass", cmd_editclass))
+    app.add_handler(CommandHandler("editstudent", cmd_editstudent))
+    app.add_handler(CommandHandler("movestudent", cmd_movestudent))
     app.add_handler(CommandHandler("addstudent", cmd_addstudent))
     app.add_handler(CommandHandler("addstudents", cmd_addstudents))
     app.add_handler(CommandHandler("addteacher", cmd_addteacher))
@@ -1590,14 +2029,18 @@ def main():
     app.add_handler(CallbackQueryHandler(on_attendance_button, pattern="^(att|attsubmit):"))
     app.add_handler(CallbackQueryHandler(on_pickclass, pattern="^pickclass:"))
     app.add_handler(CallbackQueryHandler(on_admin_pick, pattern="^adm_(sec|teacher|student):"))
+    app.add_handler(CallbackQueryHandler(on_admin_editact, pattern="^adm_editact:"))
 
     # Teacher reply-keyboard button
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(MY_CLASSES_LABEL)}$"), on_myclasses_button_text))
 
     # Admin reply-keyboard buttons (checked before the generic flow-text handler)
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_CLASS)}$"), admin_btn_add_class))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_BULK_CLASSES)}$"), admin_btn_bulk_classes))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_EDIT_CLASS)}$"), admin_btn_edit_class))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_STUDENT)}$"), admin_btn_add_student))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_BULK_STUDENTS)}$"), admin_btn_bulk_students))
+    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_EDIT_STUDENT)}$"), admin_btn_edit_student))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ADD_TEACHER)}$"), admin_btn_add_teacher))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_ASSIGN_TEACHER)}$"), admin_btn_assign_teacher))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(BTN_LIST_CLASSES)}$"), admin_btn_list_classes))
