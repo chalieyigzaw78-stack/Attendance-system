@@ -1,6 +1,6 @@
-python-telegram-bot
+python-telegram-bot[job-queue]>=20.7
 python-dotenv
 psycopg2-binary
 openpyxl
 pdfplumber
-telethon
+reportlab
