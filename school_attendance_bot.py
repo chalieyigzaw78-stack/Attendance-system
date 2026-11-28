@@ -18,6 +18,11 @@ WHAT'S NEW IN THIS VERSION
   * Remove class / remove student (with a confirmation that shows which data
     will be deleted too).
   * Exam results for teachers (max score set per exam, editable later).
+  * Students join with a per-class invite link (admin approves each name).
+    Students only see their published exam results -- never attendance.
+    Parents see published results too.
+  * Exam results: teachers publish them when ready; export one exam or all
+    of a class's exams to Excel / PDF (with rank, average, highest, lowest).
   * Extra features:
       - parents are told when a child is marked present again after absent
       - teachers can edit today's attendance after submitting
@@ -224,19 +229,19 @@ def parse_number(text: str):
 STR = {
     # ---- welcome / menus ----
     "welcome_first_admin": {
-        "am": "👋 እንኳን በደህና መጡ! እስካሁን አስተዳዳሪ ስላልነበረ እርስዎ የመጀመሪያው አስተዳዳሪ ሆነዋል።\n\nለመጀመር ከታች ያሉትን አዝራሮች ይጠቀሙ፤ ሙሉውን የትዕዛዝ ዝርዝር ለማየት /help ይላኩ።",
+        "am": "👋 እንኳን በደህና መጡ! እስካሁን አስተዳዳሪ ስላልነበረ እርስዎ የመጀመሪያው አስተዳዳሪ ሆነዋል።\n\nለመጀመር ከታች ያሉትን ቁልፎች ይጠቀሙ፤ ሙሉውን የትዕዛዝ ዝርዝር ለማየት /help ይላኩ።",
         "en": "👋 Welcome! No admin existed yet, so you're now the first admin.\n\nUse the buttons below to get started, or send /help for the full command list."},
     "welcome_admin": {
-        "am": "እንኳን ደህና መጡ፣ አስተዳዳሪ። ከታች ያሉትን አዝራሮች ይጠቀሙ፤ ትዕዛዞችን ለማየት /help ይላኩ።",
+        "am": "እንኳን ደህና መጡ፣ አስተዳዳሪ። ከታች ያሉትን ቁልፎች ይጠቀሙ፤ ትዕዛዞችን ለማየት /help ይላኩ።",
         "en": "Welcome back, admin. Use the buttons below, or /help for commands."},
     "welcome_teacher": {
-        "am": "👋 እንኳን ደህና መጡ! ክፍሎችዎን ለማየት፣ ክትትል ለመያዝ እና የፈተና ውጤት ለማስገባት ከታች ያሉትን አዝራሮች ይጠቀሙ።",
+        "am": "👋 እንኳን ደህና መጡ! ክፍሎችዎን ለማየት፣ ክትትል ለመያዝ እና የፈተና ውጤት ለማስገባት ከታች ያሉትን ቁልፎች ይጠቀሙ።",
         "en": "👋 Welcome back! Use the buttons below to take attendance, enter exam results and more."},
     "welcome_parent": {
-        "am": "👋 እንኳን ደህና መጡ! ከታች ባሉት አዝራሮች የልጅዎን ክትትል ማየት እና የቀረበትን ምክንያት ማሳወቅ ይችላሉ።",
+        "am": "👋 እንኳን ደህና መጡ! ከታች ባሉት ቁልፎች የልጅዎን ክትትል ማየት እና የቀረበትን ምክንያት ማሳወቅ ይችላሉ።",
         "en": "👋 Welcome back! Use the buttons below to see your child's attendance or send an excuse."},
     "welcome_new": {
-        "am": "👋 እንኳን ደህና መጡ!\n\n• ወላጅ ወይም አሳዳጊ ከሆኑ፦ ትምህርት ቤቱ የሰጠዎትን ኮድ በ /link ኮድ ብለው ይላኩ።\n• መምህር ከሆኑ፦ ከታች ያለውን አዝራር ይጫኑ። አስተዳዳሪው ጥያቄዎን ካጸደቀ በኋላ መጠቀም ይችላሉ።",
+        "am": "👋 እንኳን ደህና መጡ!\n\n• ወላጅ ወይም አሳዳጊ ከሆኑ፦ ትምህርት ቤቱ የሰጠዎትን ኮድ በ /link ኮድ ብለው ይላኩ።\n• መምህር ከሆኑ፦ ከታች ያለውን ቁልፍ ይጫኑ። አስተዳዳሪው ጥያቄዎን ካጸደቀ በኋላ መጠቀም ይችላሉ።",
         "en": "👋 Welcome!\n\n• Parents/guardians: send /link <code> with the code the school gave you.\n• Teachers: tap the button below. You can start once an admin approves your request."},
     "menu_admin": {"am": "የአስተዳዳሪ ምናሌ፦", "en": "Admin menu:"},
     "menu_teacher": {"am": "የመምህር ምናሌ፦", "en": "Teacher menu:"},
@@ -497,6 +502,105 @@ STR = {
     "exam_gone": {"am": "ይህ ፈተና አሁን የለም።", "en": "That exam no longer exists."},
 }
 
+STR.update({
+    # ---- students (class invite link) ----
+    "welcome_student": {
+        "am": "👋 እንኳን ደህና መጡ! ከታች ባለው ቁልፍ የተለቀቁ የፈተና ውጤቶችዎን ማየት ይችላሉ።",
+        "en": "👋 Welcome! Use the button below to see your published exam results."},
+    "menu_student": {"am": "የተማሪ ምናሌ፦", "en": "Student menu:"},
+    "welcome_new": {
+        "am": "👋 እንኳን ደህና መጡ!\n\n• ወላጅ ወይም አሳዳጊ ከሆኑ፦ ትምህርት ቤቱ የሰጠዎትን ኮድ በ /link ኮድ ብለው ይላኩ።\n• ተማሪ ከሆኑ፦ ትምህርት ቤቱ የሰጠዎትን የክፍል ግብዣ ሊንክ ይክፈቱ።\n• መምህር ከሆኑ፦ ከታች ያለውን ቁልፍ ይጫኑ። አስተዳዳሪው ጥያቄዎን ካጸደቀ በኋላ መጠቀም ይችላሉ።",
+        "en": "👋 Welcome!\n\n• Parents/guardians: send /link <code> with the code the school gave you.\n• Students: open the class invite link the school gave you.\n• Teachers: tap the button below. You can start once an admin approves your request."},
+    "no_pending": {"am": "በመጠባበቅ ላይ ያለ ጥያቄ የለም።", "en": "There are no pending requests."},
+    "invite_link_text": {
+        "am": "🔗 የ{path} ክፍል የተማሪዎች ግብዣ ሊንክ፦\n\n{link}\n\nይህን ሊንክ ለዚህ ክፍል ተማሪዎች ብቻ ይስጡ። ተማሪው ሊንኩን ከፍቶ ስሙን ይመርጣል፤ እርስዎ ያጸድቃሉ። ተማሪዎች የፈተና ውጤት ብቻ ያያሉ — የክትትል መረጃ በጭራሽ አይደርሳቸውም።",
+        "en": "🔗 Student invite link for {path}:\n\n{link}\n\nShare this only with the students of this class. A student opens it and picks their own name; you approve it. Students only see exam results — they never get attendance information."},
+    "btn_regen_link": {"am": "🔄 አዲስ ሊንክ ፍጠር", "en": "🔄 Generate a new link"},
+    "invite_regenerated": {"am": "✅ አዲስ ሊንክ ተፈጥሯል። ቀዳሚው ሊንክ ከአሁን በኋላ አይሰራም።", "en": "✅ A new link was created. The old link no longer works."},
+    "invite_invalid": {"am": "❌ ይህ የግብዣ ሊንክ ትክክል አይደለም ወይም ጊዜው አልፎበታል። እባክዎ አዲስ ሊንክ ከትምህርት ቤቱ ይጠይቁ።",
+                       "en": "❌ This invite link is invalid or has expired. Please ask the school for a new one."},
+    "student_join_blocked": {"am": "ይህ ሊንክ ለተማሪዎች ብቻ ነው። ይህ መለያ ቀድሞ በቦቱ ውስጥ ሌላ ሚና አለው።",
+                             "en": "This link is for students only. This account already has another role in the bot."},
+    "claim_pending": {"am": "ጥያቄዎ ቀድሞ ተልኳል፤ እባክዎ የአስተዳዳሪውን ውሳኔ ይጠብቁ።", "en": "Your request was already sent. Please wait for the admin's decision."},
+    "no_unclaimed": {"am": "በዚህ ክፍል ውስጥ ያልተመረጠ ስም የለም። እባክዎ አስተዳዳሪውን ያነጋግሩ።", "en": "There are no unclaimed names in this class. Please contact the admin."},
+    "student_pick_name": {"am": "👋 እንኳን ደህና መጡ! የ{path} ተማሪ ነዎት። እባክዎ ስምዎን ይምረጡ፦", "en": "👋 Welcome! This is the class {path}. Please pick your own name:"},
+    "name_taken": {"am": "ይህ ስም ቀድሞ ተመርጧል። እባክዎ አስተዳዳሪውን ያነጋግሩ።", "en": "This name has already been taken. Please contact the admin."},
+    "student_claim_sent": {"am": "✅ ጥያቄዎ ለአስተዳዳሪው ተልኳል — {name}። ሲጸድቅ መልዕክት ይደርስዎታል።", "en": "✅ Your request was sent to the admin — {name}. You'll get a message once it's approved."},
+    "admin_student_claim": {
+        "am": "🎓 የተማሪ ጥያቄ\n\nTelegram መለያ፦ {tg_name}\nየመረጠው ስም፦ {student}\nክፍል፦ {path}\n\nትክክል ነው? ያጸድቁታል?",
+        "en": "🎓 Student request\n\nTelegram account: {tg_name}\nChosen name: {student}\nClass: {path}\n\nIs this correct? Approve?"},
+    "student_approved_admin": {"am": "✅ {tg_name} እንደ {name} ጸድቋል።", "en": "✅ {tg_name} was approved as {name}."},
+    "student_rejected_admin": {"am": "❌ የ{tg_name} ጥያቄ ({name}) ውድቅ ተደርጓል።", "en": "❌ The request from {tg_name} ({name}) was rejected."},
+    "student_approved_user": {"am": "🎉 ጥያቄዎ ጸድቋል፣ {name}! አሁን የተለቀቁ የፈተና ውጤቶችዎን ማየት ይችላሉ።", "en": "🎉 Your request was approved, {name}! You can now see your published exam results."},
+    "student_rejected_user": {"am": "ይቅርታ፣ ጥያቄዎ አልጸደቀም። እባክዎ መምህርዎን ወይም አስተዳዳሪውን ያነጋግሩ።", "en": "Sorry, your request was not approved. Please contact your teacher or the admin."},
+    "btn_unlink": {"am": "🔓 የተማሪውን መለያ አላቅቅ", "en": "🔓 Unlink student account"},
+    "student_not_linked": {"am": "ይህ ተማሪ ከምንም የTelegram መለያ ጋር አልተገናኘም።", "en": "This student isn't linked to any Telegram account."},
+    "student_unlinked_admin": {"am": "✅ የ{name} መለያ ተለቋል። ተማሪው በግብዣ ሊንኩ እንደገና መቀላቀል ይችላል።", "en": "✅ {name}'s account was unlinked. They can join again through the invite link."},
+    "student_unlinked_user": {"am": "ይህ መለያ ከተማሪ መዝገብ ተለይቷል። ለበለጠ መረጃ አስተዳዳሪውን ያነጋግሩ።", "en": "This account was unlinked from the student record. Please contact the admin for details."},
+
+    # ---- results (parents & students) ----
+    "results_no_access": {"am": "እስካሁን ከምንም ተማሪ ጋር አልተገናኙም።", "en": "You aren't linked to any student yet."},
+    "results_none": {"am": "እስካሁን የተለቀቀ የፈተና ውጤት የለም።", "en": "No exam results have been published yet."},
+    "result_line": {"am": "📖 {subject} — {name} ({date})\n    ውጤት፦ {score}/{max} ({pct}%) · የክፍሉ አማካይ፦ {avg}",
+                    "en": "📖 {subject} — {name} ({date})\n    Score: {score}/{max} ({pct}%) · class average: {avg}"},
+    "result_line_missing": {"am": "📖 {subject} — {name} ({date})\n    ውጤት ገና አልገባም", "en": "📖 {subject} — {name} ({date})\n    score not entered yet"},
+    "result_published": {"am": "📝 አዲስ የፈተና ውጤት ተለቋል\n{name} — {subject} ({exam})\nውጤት፦ {score}/{max} ({pct}%)",
+                         "en": "📝 New exam result published\n{name} — {subject} ({exam})\nScore: {score}/{max} ({pct}%)"},
+    "result_updated": {"am": "✏️ የፈተና ውጤት ተስተካክሏል\n{name} — {subject} ({exam})\nአዲስ ውጤት፦ {score}/{max} ({pct}%)",
+                       "en": "✏️ An exam result was updated\n{name} — {subject} ({exam})\nNew score: {score}/{max} ({pct}%)"},
+
+    # ---- exam publishing & export ----
+    "exam_status_pub": {"am": "✅ ለተማሪዎችና ለወላጆች ተለቋል", "en": "✅ Published to students and parents"},
+    "exam_status_hidden": {"am": "🔒 አልተለቀቀም (ተማሪዎች አያዩትም)", "en": "🔒 Not published (students can't see it)"},
+    "exam_detail": {
+        "am": "📝 {subject} — {name}\n🏫 {path}\n🗓 {date}\nከፍተኛ ውጤት፦ {max}\nአማካይ፦ {avg}\nየገቡ ውጤቶች፦ {entered}/{total}\nሁኔታ፦ {status}\n\nውጤት ለማስተካከል ተማሪውን ይንኩ፦",
+        "en": "📝 {subject} — {name}\n🏫 {path}\n🗓 {date}\nMax score: {max}\nAverage: {avg}\nScores entered: {entered}/{total}\nStatus: {status}\n\nTap a student to edit their score:"},
+    "btn_publish": {"am": "📢 ውጤቱን ልቀቅ", "en": "📢 Publish results"},
+    "btn_unpublish": {"am": "🔒 ውጤቱን ደብቅ", "en": "🔒 Hide results"},
+    "exam_published": {"am": "✅ ውጤቱ ተለቋል። {n} መልዕክቶች ለተማሪዎችና ለወላጆች ተልከዋል።", "en": "✅ Results published. {n} message(s) sent to students and parents."},
+    "exam_unpublished": {"am": "🔒 ውጤቱ ተደብቋል። ተማሪዎችና ወላጆች አያዩትም።", "en": "🔒 Results hidden. Students and parents can no longer see them."},
+    "btn_all_exams": {"am": "📦 ሁሉም የክፍሉ ፈተናዎች", "en": "📦 All class exams"},
+    "xl_results": {"am": "ውጤት", "en": "Results"},
+    "xl_summary": {"am": "ማጠቃለያ", "en": "Summary"},
+    "col_rank": {"am": "ደረጃ", "en": "Rank"},
+    "col_score": {"am": "ውጤት", "en": "Score"},
+    "col_percent": {"am": "%", "en": "%"},
+    "col_max": {"am": "ከፍተኛ ውጤት", "en": "Max score"},
+    "col_average": {"am": "አማካይ", "en": "Average"},
+    "col_highest": {"am": "ከፍተኛው", "en": "Highest"},
+    "col_lowest": {"am": "ዝቅተኛው", "en": "Lowest"},
+    "col_avg_percent": {"am": "አማካይ %", "en": "Average %"},
+})
+
+STR.update({
+    # ---- study materials ----
+    "mat_menu": {"am": "📚 የጥናት ማቴሪያል — ምን ማድረግ ይፈልጋሉ?", "en": "📚 Study materials — what would you like to do?"},
+    "btn_mat_upload": {"am": "➕ ማቴሪያል ላክ", "en": "➕ Upload material"},
+    "btn_mat_list": {"am": "📂 የተላኩ ማቴሪያሎች", "en": "📂 Uploaded materials"},
+    "mat_pick_category": {"am": "የማቴሪያሉ አይነት ምንድን ነው?", "en": "What kind of material is it?"},
+    "cat_past_exam": {"am": "📄 ያለፈ ፈተና", "en": "📄 Past exam"},
+    "cat_notes": {"am": "📘 የትምህርት ማስታወሻ", "en": "📘 Lesson notes"},
+    "cat_homework": {"am": "📚 የቤት ስራ ወረቀት", "en": "📚 Homework sheet"},
+    "cat_other": {"am": "📎 ሌላ", "en": "📎 Other"},
+    "mat_ask_file": {
+        "am": "📎 {cat} ለ{path}\n\nፋይሉን ይላኩ (PDF፣ Word፣ ምስል፣ ቪዲዮ ወይም ድምጽ)። ፋይሉን ሲልኩ ርዕሱን በመግለጫ (caption) መጻፍ ይችላሉ፤ ካልጻፉ የፋይሉ ስም ርዕስ ይሆናል። ፋይሎቹን አንድ በአንድ ይላኩ።",
+        "en": "📎 {cat} for {path}\n\nSend the file (PDF, Word, image, video or audio). You can write the title as the file's caption; otherwise the file name is used. Send files one at a time."},
+    "mat_need_file": {"am": "📎 እባክዎ ፋይል ይላኩ (PDF፣ Word፣ ምስል፣ ቪዲዮ ወይም ድምጽ)፤ ወይም 'ጨርስ' የሚለውን ቁልፍ ይጫኑ።",
+                      "en": "📎 Please send a file (PDF, Word, image, video or audio), or tap 'Done'."},
+    "mat_saved": {"am": "✅ ተቀምጧል — «{title}»። ለ{n} ተማሪዎችና ወላጆች ተልኳል።\n\nሌላ ፋይል መላክ ወይም 'ጨርስ' የሚለውን ቁልፍ መጫን ይችላሉ።",
+                  "en": "✅ Saved — «{title}». Sent to {n} student/parent chat(s).\n\nSend another file or tap 'Done'."},
+    "btn_done": {"am": "✅ ጨርስ", "en": "✅ Done"},
+    "mat_done": {"am": "✅ ተጠናቅቋል።", "en": "✅ Done."},
+    "mat_caption": {"am": "{cat}\n{title}\n🏫 {path}\n👨‍🏫 {teacher}", "en": "{cat}\n{title}\n🏫 {path}\n👨‍🏫 {teacher}"},
+    "mat_none": {"am": "በዚህ ክፍል እስካሁን የተላከ ማቴሪያል የለም።", "en": "No materials have been uploaded for this class yet."},
+    "mat_pick": {"am": "📚 {path} — ማቴሪያል ይምረጡ፦", "en": "📚 {path} — pick a material:"},
+    "btn_delete": {"am": "🗑 አስወግድ", "en": "🗑 Delete"},
+    "btn_confirm_delete": {"am": "🗑 አዎ፣ አስወግድ", "en": "🗑 Yes, delete"},
+    "mat_confirm_delete": {"am": "ይህን ማቴሪያል ለማስወገድ እርግጠኛ ነዎት?\n«{title}»", "en": "Are you sure you want to delete this material?\n«{title}»"},
+    "mat_deleted": {"am": "✅ ማቴሪያሉ ተወግዷል።", "en": "✅ Material deleted."},
+    "mat_gone": {"am": "ይህ ማቴሪያል አሁን የለም።", "en": "That material no longer exists."},
+})
+
 
 # ======================================================================
 # Reply-keyboard buttons
@@ -511,7 +615,10 @@ BTN = {
     "bulk_students": {"am": "📥 ብዙ ተማሪዎች ጨምር", "en": "📥 Bulk Add Students"},
     "edit_student": {"am": "✏️ ተማሪ አስተካክል", "en": "✏️ Edit Student"},
     "del_student": {"am": "🗑 ተማሪ አስወግድ", "en": "🗑 Remove Student"},
-    "pending_teachers": {"am": "🕒 የመምህር ጥያቄዎች", "en": "🕒 Teacher Requests"},
+    "pending_teachers": {"am": "🕒 የሚጠብቁ ጥያቄዎች", "en": "🕒 Pending Requests"},
+    "invite_link": {"am": "🔗 የክፍል ግብዣ ሊንክ", "en": "🔗 Class Invite Link"},
+    "materials": {"am": "📚 የጥናት ማቴሪያል", "en": "📚 Study Materials"},
+    "results": {"am": "🎓 ውጤት ይመልከቱ", "en": "🎓 View Results"},
     "assign_teacher": {"am": "🔗 መምህር መድብ", "en": "🔗 Assign Teacher"},
     "list_classes": {"am": "📚 ክፍሎችን ዘርዝር", "en": "📚 List Classes"},
     "list_students": {"am": "🧑‍🤝‍🧑 ተማሪዎችን ዘርዝር", "en": "🧑‍🤝‍🧑 List Students"},
@@ -535,16 +642,17 @@ ROLE_LAYOUT = {
     "admin": [
         ["add_class", "bulk_classes"], ["edit_class", "del_class"],
         ["add_student", "bulk_students"], ["edit_student", "del_student"],
-        ["pending_teachers", "assign_teacher"], ["list_classes", "list_students"],
-        ["student_code", "absentees"], ["weekly", "monthly"],
-        ["export", "announce"], ["my_classes", "exams"], ["notes", "add_admin"],
-        ["language", "cancel"],
+        ["pending_teachers", "assign_teacher"], ["invite_link", "list_classes"],
+        ["list_students", "student_code"], ["absentees", "weekly"],
+        ["monthly", "export"], ["announce", "exams"], ["my_classes", "notes"],
+        ["materials", "add_admin"], ["language", "cancel"],
     ],
     "teacher": [
-        ["my_classes", "exams"], ["notes", "weekly"],
-        ["monthly", "export"], ["language", "cancel"],
+        ["my_classes", "exams"], ["materials", "notes"],
+        ["weekly", "monthly"], ["export", "language"], ["cancel"],
     ],
-    "parent": [["p_children", "p_excuse"], ["language"]],
+    "parent": [["p_children", "p_excuse"], ["results", "materials"], ["language"]],
+    "student": [["results", "materials"], ["language"]],
 }
 
 LABEL_TO_KEY = {label: key for key, labels in BTN.items() for label in labels.values()}
@@ -682,7 +790,8 @@ def init_db():
         telegram_id BIGINT PRIMARY KEY, name TEXT, username TEXT, requested_at TEXT)""")
     conn.execute(f"""CREATE TABLE IF NOT EXISTS exams (
         id {id_type}, section_id INTEGER REFERENCES sections(id),
-        name TEXT, subject TEXT, max_score REAL, exam_date TEXT, created_by BIGINT)""")
+        name TEXT, subject TEXT, max_score REAL, exam_date TEXT, created_by BIGINT,
+        published INTEGER DEFAULT 0)""")
     conn.execute("""CREATE TABLE IF NOT EXISTS exam_scores (
         exam_id INTEGER REFERENCES exams(id),
         student_id INTEGER REFERENCES students(id),
@@ -691,6 +800,25 @@ def init_db():
         id {id_type}, student_id INTEGER REFERENCES students(id),
         date TEXT, reason TEXT, chat_id BIGINT, created_at TEXT,
         UNIQUE(student_id, date))""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS student_links (
+        id {id_type}, student_id INTEGER UNIQUE REFERENCES students(id), chat_id BIGINT UNIQUE)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS student_claims (
+        id {id_type}, student_id INTEGER UNIQUE REFERENCES students(id), chat_id BIGINT UNIQUE,
+        name TEXT, requested_at TEXT)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS materials (
+        id {id_type}, section_id INTEGER REFERENCES sections(id), category TEXT, title TEXT,
+        kind TEXT, file_id TEXT, created_by BIGINT, created_at TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS class_invites (
+        section_id INTEGER PRIMARY KEY REFERENCES sections(id), token TEXT UNIQUE)""")
+    conn.commit()
+
+    # databases created by the previous version have no 'published' column yet
+    if USE_POSTGRES:
+        conn.execute("ALTER TABLE exams ADD COLUMN IF NOT EXISTS published INTEGER DEFAULT 0")
+    else:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(exams)").fetchall()]
+        if "published" not in cols:
+            conn.execute("ALTER TABLE exams ADD COLUMN published INTEGER DEFAULT 0")
     conn.commit()
 
     # carry forward the old single parent_chat_id into parent_links
@@ -725,6 +853,10 @@ def is_parent(uid: int) -> bool:
     return fetchone("SELECT 1 FROM parent_links WHERE chat_id = ?", (uid,)) is not None
 
 
+def is_student(uid: int) -> bool:
+    return fetchone("SELECT 1 FROM student_links WHERE chat_id = ?", (uid,)) is not None
+
+
 def role_of(uid: int) -> str:
     if is_admin(uid):
         return "admin"
@@ -732,6 +864,8 @@ def role_of(uid: int) -> str:
         return "teacher"
     if is_parent(uid):
         return "parent"
+    if is_student(uid):
+        return "student"
     return "none"
 
 
@@ -928,6 +1062,8 @@ def delete_student_data(conn, student_id: int):
     conn.execute("DELETE FROM parent_links WHERE student_id = ?", (student_id,))
     conn.execute("DELETE FROM excuses WHERE student_id = ?", (student_id,))
     conn.execute("DELETE FROM exam_scores WHERE student_id = ?", (student_id,))
+    conn.execute("DELETE FROM student_links WHERE student_id = ?", (student_id,))
+    conn.execute("DELETE FROM student_claims WHERE student_id = ?", (student_id,))
     conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
 
 
@@ -949,6 +1085,10 @@ def delete_class(section_id: int):
         conn.execute(f"DELETE FROM parent_links WHERE student_id IN {sub}", (section_id,))
         conn.execute(f"DELETE FROM excuses WHERE student_id IN {sub}", (section_id,))
         conn.execute(f"DELETE FROM exam_scores WHERE student_id IN {sub}", (section_id,))
+        conn.execute(f"DELETE FROM student_links WHERE student_id IN {sub}", (section_id,))
+        conn.execute(f"DELETE FROM student_claims WHERE student_id IN {sub}", (section_id,))
+        conn.execute("DELETE FROM class_invites WHERE section_id = ?", (section_id,))
+        conn.execute("DELETE FROM materials WHERE section_id = ?", (section_id,))
         conn.execute("DELETE FROM exam_scores WHERE exam_id IN (SELECT id FROM exams WHERE section_id = ?)", (section_id,))
         conn.execute("DELETE FROM exams WHERE section_id = ?", (section_id,))
         conn.execute("DELETE FROM students WHERE section_id = ?", (section_id,))
@@ -1086,7 +1226,8 @@ def class_tree_text(lang) -> str:
 def students_list_text(lang, section_id, path) -> str:
     rows = fetchall("""
         SELECT students.id, students.name,
-               (SELECT COUNT(*) FROM parent_links WHERE parent_links.student_id = students.id) AS gc
+               (SELECT COUNT(*) FROM parent_links WHERE parent_links.student_id = students.id) AS gc,
+               (SELECT COUNT(*) FROM student_links WHERE student_links.student_id = students.id) AS sl
         FROM students WHERE section_id = ? ORDER BY students.name
     """, (section_id,))
     if not rows:
@@ -1094,7 +1235,7 @@ def students_list_text(lang, section_id, path) -> str:
     lines = [f"🧑‍🤝‍🧑 {path}:"]
     for s in rows:
         key = "student_linked" if s["gc"] else "student_unlinked"
-        lines.append("  • " + tr(lang, key, name=s["name"], n=s["gc"]))
+        lines.append("  • " + tr(lang, key, name=s["name"], n=s["gc"]) + (" 🎓" if s["sl"] else ""))
     return "\n".join(lines)
 
 
@@ -1441,6 +1582,544 @@ def build_pdf(section_id: int, lang) -> bytes:
 
 
 # ======================================================================
+# Student accounts (class invite link), results, exam export
+# ======================================================================
+
+def get_class_invite_token(section_id: int, regenerate: bool = False) -> str:
+    row = fetchone("SELECT token FROM class_invites WHERE section_id = ?", (section_id,))
+    if row and not regenerate:
+        return row["token"]
+    token = secrets.token_hex(5)
+    execute("INSERT INTO class_invites (section_id, token) VALUES (?, ?) "
+            "ON CONFLICT (section_id) DO UPDATE SET token = excluded.token", (section_id, token))
+    return token
+
+
+def unclaimed_students(section_id: int):
+    """Students nobody has linked yet and nobody is waiting to claim."""
+    return fetchall("""
+        SELECT id, name FROM students WHERE section_id = ?
+        AND id NOT IN (SELECT student_id FROM student_links)
+        AND id NOT IN (SELECT student_id FROM student_claims)
+        ORDER BY name
+    """, (section_id,))
+
+
+def linked_students_of(uid: int):
+    """Children of a parent chat, or the own record of a student chat."""
+    return fetchall("""
+        SELECT id, name, section_id FROM students
+        WHERE id IN (SELECT student_id FROM parent_links WHERE chat_id = ?)
+           OR id IN (SELECT student_id FROM student_links WHERE chat_id = ?)
+        ORDER BY name
+    """, (uid, uid))
+
+
+def claim_keyboard(lang, student_id):
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(tr(lang, "btn_approve"), callback_data=f"scl:ok:{student_id}"),
+        InlineKeyboardButton(tr(lang, "btn_reject"), callback_data=f"scl:no:{student_id}")]])
+
+
+async def student_join_start(update: Update, token: str):
+    uid = update.effective_user.id
+    lang = get_lang(uid)
+    row = fetchone("SELECT section_id FROM class_invites WHERE token = ?", (token,))
+    if not row:
+        await update.message.reply_text(tr(lang, "invite_invalid"))
+        return
+    if role_of(uid) != "none":
+        await update.message.reply_text(tr(lang, "student_join_blocked"))
+        return
+    if fetchone("SELECT 1 FROM student_claims WHERE chat_id = ?", (uid,)):
+        await update.message.reply_text(tr(lang, "claim_pending"))
+        return
+    sid = row["section_id"]
+    path = get_section_path(sid)
+    students = unclaimed_students(sid)
+    if not students:
+        await update.message.reply_text(tr(lang, "no_unclaimed"))
+        return
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(s["name"], callback_data=f"sj:{s['id']}")] for s in students])
+    await update.message.reply_text(tr(lang, "student_pick_name", path=path), reply_markup=kb)
+
+
+def exam_is_published(exam_id: int) -> bool:
+    row = fetchone("SELECT published FROM exams WHERE id = ?", (exam_id,))
+    return bool(row and row["published"])
+
+
+def results_text(lang, student) -> str:
+    head = f"🎓 {student['name']} — {get_section_path(student['section_id'])}"
+    exams = fetchall("SELECT id, name, subject, max_score, exam_date FROM exams "
+                     "WHERE section_id = ? AND published = 1 ORDER BY id DESC LIMIT 20", (student["section_id"],))
+    if not exams:
+        return head + "\n" + tr(lang, "results_none")
+    lines = [head, ""]
+    for e in exams:
+        sc = fetchone("SELECT score FROM exam_scores WHERE exam_id = ? AND student_id = ?", (e["id"], student["id"]))
+        date_s = fmt_date(e["exam_date"], lang)
+        if not sc or sc["score"] is None:
+            lines.append(tr(lang, "result_line_missing", subject=e["subject"], name=e["name"], date=date_s))
+            continue
+        avg = fetchone("SELECT AVG(score) AS a FROM exam_scores WHERE exam_id = ?", (e["id"],))["a"]
+        lines.append(tr(lang, "result_line", subject=e["subject"], name=e["name"], date=date_s,
+                        score=fmt_num(sc["score"]), max=fmt_num(e["max_score"]),
+                        pct=fmt_num(round(sc["score"] * 100 / e["max_score"], 1)),
+                        avg=fmt_num(round(avg, 1))))
+    return "\n".join(lines)
+
+
+async def notify_result(bot, exam_id: int, student_id: int, kind: str = "published") -> int:
+    e = fetchone("SELECT name, subject, max_score FROM exams WHERE id = ?", (exam_id,))
+    s = fetchone("SELECT name FROM students WHERE id = ?", (student_id,))
+    sc = fetchone("SELECT score FROM exam_scores WHERE exam_id = ? AND student_id = ?", (exam_id, student_id))
+    if not (e and s and sc):
+        return 0
+    chats = {r["chat_id"] for r in fetchall("SELECT chat_id FROM parent_links WHERE student_id = ?", (student_id,))}
+    chats |= {r["chat_id"] for r in fetchall("SELECT chat_id FROM student_links WHERE student_id = ?", (student_id,))}
+    key = "result_published" if kind == "published" else "result_updated"
+    sent = 0
+    for cid in chats:
+        text = tr(get_lang(cid), key, name=s["name"], subject=e["subject"], exam=e["name"],
+                  score=fmt_num(sc["score"]), max=fmt_num(e["max_score"]),
+                  pct=fmt_num(round(sc["score"] * 100 / e["max_score"], 1)))
+        if await safe_send(bot, cid, text):
+            sent += 1
+    return sent
+
+
+async def publish_exam(bot, exam_id: int) -> int:
+    execute("UPDATE exams SET published = 1 WHERE id = ?", (exam_id,))
+    sent = 0
+    for r in fetchall("SELECT student_id FROM exam_scores WHERE exam_id = ?", (exam_id,)):
+        sent += await notify_result(bot, exam_id, r["student_id"], "published")
+    return sent
+
+
+# ---------- exam export data ----------
+
+def exam_results_data(exam_id: int):
+    e = fetchone("SELECT id, section_id, name, subject, max_score, exam_date FROM exams WHERE id = ?", (exam_id,))
+    if not e:
+        return None
+    mx = e["max_score"]
+    scores = {r["student_id"]: r["score"] for r in fetchall(
+        "SELECT student_id, score FROM exam_scores WHERE exam_id = ?", (exam_id,))}
+    rows = [{"name": s["name"], "score": scores.get(s["id"]), "rank": None, "pct": None}
+            for s in get_students_in_section(e["section_id"])]
+    scored = sorted([r for r in rows if r["score"] is not None], key=lambda r: (-r["score"], r["name"]))
+    prev, rank = None, 0
+    for i, r in enumerate(scored, 1):
+        if r["score"] != prev:
+            rank, prev = i, r["score"]
+        r["rank"] = rank
+        r["pct"] = round(r["score"] * 100 / mx, 1)
+    unscored = [r for r in rows if r["score"] is None]
+    vals = [r["score"] for r in scored]
+    stats = {"avg": round(sum(vals) / len(vals), 1) if vals else None,
+             "high": max(vals) if vals else None, "low": min(vals) if vals else None,
+             "count": len(vals), "total": len(rows)}
+    return e, scored + unscored, stats
+
+
+def class_exams_matrix(section_id: int):
+    exams = fetchall("SELECT id, name, subject, max_score FROM exams WHERE section_id = ? ORDER BY id", (section_id,))
+    per_exam = []
+    for e in exams:
+        per_exam.append({r["student_id"]: r["score"] for r in fetchall(
+            "SELECT student_id, score FROM exam_scores WHERE exam_id = ?", (e["id"],))})
+    rows = []
+    for s in get_students_in_section(section_id):
+        scores = [m.get(s["id"]) for m in per_exam]
+        pcts = [sc * 100 / e["max_score"] for sc, e in zip(scores, exams) if sc is not None]
+        rows.append({"name": s["name"], "scores": scores,
+                     "avg_pct": round(sum(pcts) / len(pcts), 1) if pcts else None, "rank": None})
+    ranked = sorted([r for r in rows if r["avg_pct"] is not None], key=lambda r: (-r["avg_pct"], r["name"]))
+    prev, rank = None, 0
+    for i, r in enumerate(ranked, 1):
+        if r["avg_pct"] != prev:
+            rank, prev = i, r["avg_pct"]
+        r["rank"] = rank
+    rest = [r for r in rows if r["avg_pct"] is None]
+    return exams, ranked + rest
+
+
+def _exam_label(e) -> str:
+    return f"{e['subject']} - {e['name']} (/{fmt_num(e['max_score'])})"
+
+
+def _write_exam_sheet(ws, lang, e, rows, st):
+    from openpyxl.styles import Font
+    ws.append([f"{e['subject']} — {e['name']}"])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([get_section_path(e["section_id"]), fmt_date(e["exam_date"], lang)])
+    ws.append([tr(lang, "col_max"), e["max_score"]])
+    ws.append([])
+    ws.append([tr(lang, "col_rank"), tr(lang, "col_student"), tr(lang, "col_score"), tr(lang, "col_percent")])
+    for c in ws[5]:
+        c.font = Font(bold=True)
+    for r in rows:
+        ws.append([r["rank"], r["name"], r["score"], r["pct"]])
+    ws.append([])
+    ws.append([tr(lang, "col_average"), st["avg"]])
+    ws.append([tr(lang, "col_highest"), st["high"]])
+    ws.append([tr(lang, "col_lowest"), st["low"]])
+    ws.column_dimensions["B"].width = 32
+
+
+def build_exam_xlsx(exam_id: int, lang) -> bytes:
+    import openpyxl
+    e, rows, st = exam_results_data(exam_id)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = tr(lang, "xl_results")[:31]
+    _write_exam_sheet(ws, lang, e, rows, st)
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
+def build_class_exams_xlsx(section_id: int, lang) -> bytes:
+    import openpyxl
+    from openpyxl.styles import Font
+    exams, rows = class_exams_matrix(section_id)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = tr(lang, "xl_summary")[:31]
+    ws.append([get_section_path(section_id)])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([])
+    ws.append([tr(lang, "col_rank"), tr(lang, "col_student")] + [_exam_label(e) for e in exams] + [tr(lang, "col_avg_percent")])
+    for c in ws[3]:
+        c.font = Font(bold=True)
+    for r in rows:
+        ws.append([r["rank"], r["name"]] + r["scores"] + [r["avg_pct"]])
+    ws.column_dimensions["B"].width = 32
+    for idx, e in enumerate(exams, 1):
+        data = exam_results_data(e["id"])
+        name = re.sub(r"[\[\]:*?/\\]", "", f"{idx}-{e['subject']}")[:31] or f"exam{idx}"
+        sheet = wb.create_sheet(name)
+        _write_exam_sheet(sheet, lang, data[0], data[1], data[2])
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
+def _render_pdf(title: str, data, font: str, notes=None, landscape_mode=False) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    title_style = ParagraphStyle("t", fontName=font, fontSize=14, leading=18)
+    note_style = ParagraphStyle("n", fontName=font, fontSize=10, leading=14)
+    table = Table(data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), font),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("ALIGN", (2, 0), (-1, -1), "CENTER"),
+    ]))
+    story = [Paragraph(html.escape(title), title_style), Spacer(1, 10), table]
+    if notes:
+        story.append(Spacer(1, 10))
+        story += [Paragraph(html.escape(n), note_style) for n in notes]
+    bio = io.BytesIO()
+    SimpleDocTemplate(bio, pagesize=landscape(A4) if landscape_mode else A4).build(story)
+    return bio.getvalue()
+
+
+def _pdf_font(lang):
+    """Helvetica can't draw Amharic; PDF_FONT_PATH enables Ethiopic text."""
+    if PDF_FONT_PATH and os.path.exists(PDF_FONT_PATH):
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        pdfmetrics.registerFont(TTFont("EthioFont", PDF_FONT_PATH))
+        return "EthioFont", lang
+    return "Helvetica", "en"
+
+
+def build_exam_pdf(exam_id: int, lang) -> bytes:
+    font, pl = _pdf_font(lang)
+    e, rows, st = exam_results_data(exam_id)
+    data = [[tr(pl, "col_rank"), tr(pl, "col_student"), tr(pl, "col_score"), tr(pl, "col_percent")]]
+    for r in rows:
+        data.append(["-" if r["rank"] is None else r["rank"], r["name"],
+                     "-" if r["score"] is None else fmt_num(r["score"]),
+                     "-" if r["pct"] is None else f"{fmt_num(r['pct'])}%"])
+    notes = [f"{tr(pl, 'col_max')}: {fmt_num(e['max_score'])}",
+             f"{tr(pl, 'col_average')}: {fmt_num(st['avg'])}   {tr(pl, 'col_highest')}: {fmt_num(st['high'])}   "
+             f"{tr(pl, 'col_lowest')}: {fmt_num(st['low'])}"]
+    title = f"{e['subject']} - {e['name']} | {get_section_path(e['section_id'])} | {fmt_date(e['exam_date'], pl)}"
+    return _render_pdf(title, data, font, notes)
+
+
+def build_class_exams_pdf(section_id: int, lang) -> bytes:
+    font, pl = _pdf_font(lang)
+    exams, rows = class_exams_matrix(section_id)
+    data = [[tr(pl, "col_rank"), tr(pl, "col_student")] + [f"{e['subject']}\n{e['name']}\n/{fmt_num(e['max_score'])}" for e in exams]
+            + [tr(pl, "col_avg_percent")]]
+    for r in rows:
+        data.append(["-" if r["rank"] is None else r["rank"], r["name"]]
+                    + ["-" if sc is None else fmt_num(sc) for sc in r["scores"]]
+                    + ["-" if r["avg_pct"] is None else f"{fmt_num(r['avg_pct'])}%"])
+    return _render_pdf(get_section_path(section_id), data, font, landscape_mode=len(exams) > 4)
+
+
+# ======================================================================
+# Study materials (past exams, notes, homework sheets ...)
+# Teachers upload files per class; students and parents of that class get
+# the file at once and can re-open it later from "📚 Study Materials".
+# Telegram file_ids are stored, so nothing is kept on the bot's disk.
+# ======================================================================
+
+MAT_CATS = {"past_exam": "📄", "notes": "📘", "homework": "📚", "other": "📎"}
+
+
+def done_keyboard(lang):
+    return InlineKeyboardMarkup([[InlineKeyboardButton(tr(lang, "btn_done"), callback_data="mat:done")]])
+
+
+def materials_for_section(section_id: int):
+    return fetchall("SELECT id, category, title FROM materials WHERE section_id = ? ORDER BY id DESC LIMIT 40",
+                    (section_id,))
+
+
+def material_sections_of(uid: int):
+    """Class ids of the children of a parent chat, or of the student's own class."""
+    rows = fetchall("""
+        SELECT DISTINCT section_id FROM students
+        WHERE id IN (SELECT student_id FROM parent_links WHERE chat_id = ?)
+           OR id IN (SELECT student_id FROM student_links WHERE chat_id = ?)
+    """, (uid, uid))
+    return [r["section_id"] for r in rows]
+
+
+def can_see_material(uid: int, section_id: int) -> bool:
+    if role_of(uid) in ("admin", "teacher"):
+        return can_access_section(uid, section_id)
+    return section_id in material_sections_of(uid)
+
+
+def mat_caption(lang, mat, teacher: str) -> str:
+    return tr(lang, "mat_caption", cat=tr(lang, f"cat_{mat['category']}"), title=mat["title"],
+              path=get_section_path(mat["section_id"]), teacher=teacher)[:1000]
+
+
+async def send_material(bot, chat_id, mat, caption, reply_markup=None) -> bool:
+    senders = {"document": (bot.send_document, "document"), "photo": (bot.send_photo, "photo"),
+               "video": (bot.send_video, "video"), "audio": (bot.send_audio, "audio")}
+    send, arg = senders.get(mat["kind"], senders["document"])
+    try:
+        await send(chat_id=chat_id, caption=caption, reply_markup=reply_markup, **{arg: mat["file_id"]})
+        return True
+    except Exception as e:
+        print(f"[material] failed for chat {chat_id}: {e}")
+        return False
+
+
+async def notify_material(bot, uid: int, material_id: int) -> int:
+    mat = fetchone("SELECT * FROM materials WHERE id = ?", (material_id,))
+    if not mat:
+        return 0
+    sid = mat["section_id"]
+    chats = {r["chat_id"] for r in fetchall(
+        "SELECT parent_links.chat_id FROM parent_links JOIN students ON parent_links.student_id = students.id "
+        "WHERE students.section_id = ?", (sid,))}
+    chats |= {r["chat_id"] for r in fetchall(
+        "SELECT student_links.chat_id FROM student_links JOIN students ON student_links.student_id = students.id "
+        "WHERE students.section_id = ?", (sid,))}
+    teacher = sender_name(uid)
+    sent = 0
+    for cid in chats:
+        if await send_material(bot, cid, mat, mat_caption(get_lang(cid), mat, teacher)):
+            sent += 1
+    return sent
+
+
+def _mat_section_picker(sections, action):
+    return InlineKeyboardMarkup([[InlineKeyboardButton(
+        f"{s['building_name']} > {s['grade_name']} > {s['section_name']}",
+        callback_data=f"mat:{action}:{s['section_id']}")] for s in sections])
+
+
+async def list_materials(message, lang, section_id: int, action: str):
+    """action 'view' = teacher list (shows a delete button), 'get' = student/parent list."""
+    items = materials_for_section(section_id)
+    if not items:
+        await message.reply_text(tr(lang, "mat_none"))
+        return
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(
+        f"{MAT_CATS.get(m['category'], '📎')} {m['title']}"[:60], callback_data=f"mat:{action}:{m['id']}")] for m in items])
+    await message.reply_text(tr(lang, "mat_pick", path=get_section_path(section_id)), reply_markup=kb)
+
+
+async def btn_materials(update, context):
+    uid = update.effective_user.id
+    lang = get_lang(uid)
+    role = role_of(uid)
+    if role in ("admin", "teacher"):
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(tr(lang, "btn_mat_upload"), callback_data="mat:new")],
+            [InlineKeyboardButton(tr(lang, "btn_mat_list"), callback_data="mat:list")]])
+        await update.message.reply_text(tr(lang, "mat_menu"), reply_markup=kb)
+        return
+    sections = material_sections_of(uid)
+    if not sections:
+        await update.message.reply_text(tr(lang, "results_no_access"))
+        return
+    if len(sections) == 1:
+        await list_materials(update.message, lang, sections[0], "get")
+        return
+    all_secs = {s["section_id"]: s for s in get_all_sections()}
+    await update.message.reply_text(
+        tr(lang, "which_class"), reply_markup=_mat_section_picker([all_secs[i] for i in sections if i in all_secs], "lib"))
+
+
+async def on_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Files/photos/videos/audio: a teacher's material upload, or the bulk student list."""
+    uid = update.effective_user.id
+    flow = context.user_data.get("flow")
+    if flow and flow.get("action") == "matupload" and role_of(uid) in ("admin", "teacher"):
+        await handle_material_upload(update, context, flow)
+        return
+    if update.message and update.message.document:
+        await on_document(update, context)
+
+
+async def handle_material_upload(update, context, flow):
+    uid = update.effective_user.id
+    lang = get_lang(uid)
+    m = update.message
+    data = flow["data"]
+    sid, category = data["section_id"], data["category"]
+    if not can_access_section(uid, sid):
+        clear_flow(context)
+        await m.reply_text(tr(lang, "not_assigned"), reply_markup=main_menu(uid))
+        return
+
+    if m.document:
+        kind, file_id, fname = "document", m.document.file_id, m.document.file_name
+    elif m.photo:
+        kind, file_id, fname = "photo", m.photo[-1].file_id, None
+    elif m.video:
+        kind, file_id, fname = "video", m.video.file_id, m.video.file_name
+    elif m.audio:
+        kind, file_id, fname = "audio", m.audio.file_id, m.audio.file_name or m.audio.title
+    else:
+        await m.reply_text(tr(lang, "mat_need_file"), reply_markup=done_keyboard(lang))
+        return
+
+    title = (m.caption or "").strip() or fname or f"{tr(lang, 'cat_' + category)} {fmt_date(today_iso(), lang)}"
+    title = title[:200]
+    execute("INSERT INTO materials (section_id, category, title, kind, file_id, created_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sid, category, title, kind, file_id, uid, now_eat().isoformat(timespec="seconds")))
+    mat_id = fetchone("SELECT id FROM materials WHERE created_by = ? ORDER BY id DESC LIMIT 1", (uid,))["id"]
+    n = await notify_material(context.bot, uid, mat_id)
+    await m.reply_text(tr(lang, "mat_saved", title=title, n=n), reply_markup=done_keyboard(lang))
+
+
+async def cb_mat(update, context, query, uid, lang, parts):
+    act = parts[1]
+    staff = role_of(uid) in ("admin", "teacher")
+    msg = query.message
+
+    if act == "no":
+        await query.answer()
+        await query.edit_message_text(tr(lang, "cancelled"))
+        return
+
+    # ---------- teacher / admin ----------
+    if act in ("new", "list", "tn", "cat", "tl", "view", "del", "delyes", "done"):
+        if not staff:
+            await query.answer(tr(lang, "not_teacher"), show_alert=True)
+            return
+
+        if act == "done":
+            await query.answer()
+            clear_flow(context)
+            await msg.reply_text(tr(lang, "mat_done"), reply_markup=main_menu(uid))
+            return
+
+        if act in ("new", "list"):
+            await query.answer()
+            sections = sections_for_user(uid)
+            if not sections:
+                await msg.reply_text(tr(lang, "no_classes_for_you"))
+                return
+            await msg.reply_text(tr(lang, "which_class"),
+                                 reply_markup=_mat_section_picker(sections, "tn" if act == "new" else "tl"))
+            return
+
+        if act in ("tn", "tl", "cat"):
+            sid = int(parts[2])
+            if not get_section_path(sid):
+                await query.answer(tr(lang, "class_gone"), show_alert=True)
+                return
+            if not can_access_section(uid, sid):
+                await query.answer(tr(lang, "not_assigned"), show_alert=True)
+                return
+            await query.answer()
+            if act == "tl":
+                await list_materials(msg, lang, sid, "view")
+            elif act == "tn":
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(lang, f"cat_{c}"), callback_data=f"mat:cat:{sid}:{c}")]
+                                           for c in MAT_CATS])
+                await msg.reply_text(tr(lang, "mat_pick_category"), reply_markup=kb)
+            else:
+                category = parts[3] if parts[3] in MAT_CATS else "other"
+                set_flow(context, "matupload", 0, section_id=sid, category=category)
+                await msg.reply_text(tr(lang, "mat_ask_file", cat=tr(lang, f"cat_{category}"), path=get_section_path(sid)),
+                                     reply_markup=cancel_menu(lang))
+                await msg.reply_text("⬇️", reply_markup=done_keyboard(lang))
+            return
+
+        # view / del / delyes need the material
+        mat = fetchone("SELECT * FROM materials WHERE id = ?", (int(parts[2]),))
+        if not mat:
+            await query.answer(tr(lang, "mat_gone"), show_alert=True)
+            return
+        if not can_access_section(uid, mat["section_id"]):
+            await query.answer(tr(lang, "not_assigned"), show_alert=True)
+            return
+        await query.answer()
+        if act == "view":
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(lang, "btn_delete"), callback_data=f"mat:del:{mat['id']}")]])
+            await send_material(context.bot, msg.chat_id, mat, mat_caption(lang, mat, sender_name(mat["created_by"])), kb)
+        elif act == "del":
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(lang, "btn_confirm_delete"), callback_data=f"mat:delyes:{mat['id']}")],
+                                       [InlineKeyboardButton(tr(lang, "btn_no"), callback_data="mat:no")]])
+            await msg.reply_text(tr(lang, "mat_confirm_delete", title=mat["title"]), reply_markup=kb)
+        else:
+            execute("DELETE FROM materials WHERE id = ?", (mat["id"],))
+            await query.edit_message_text(tr(lang, "mat_deleted"))
+        return
+
+    # ---------- students / parents (and staff) reading ----------
+    if act == "lib":
+        sid = int(parts[2])
+        if not can_see_material(uid, sid):
+            await query.answer(tr(lang, "not_assigned"), show_alert=True)
+            return
+        await query.answer()
+        await list_materials(msg, lang, sid, "get")
+    elif act == "get":
+        mat = fetchone("SELECT * FROM materials WHERE id = ?", (int(parts[2]),))
+        if not mat:
+            await query.answer(tr(lang, "mat_gone"), show_alert=True)
+            return
+        if not can_see_material(uid, mat["section_id"]):
+            await query.answer(tr(lang, "not_assigned"), show_alert=True)
+            return
+        await query.answer()
+        await send_material(context.bot, msg.chat_id, mat, mat_caption(lang, mat, sender_name(mat["created_by"])))
+    else:
+        await query.answer()
+
+
+# ======================================================================
 # Menu / flow helpers
 # ======================================================================
 
@@ -1500,8 +2179,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     lang = get_lang(uid)
 
-    if context.args:  # deep link: t.me/<bot>?start=<code>
-        await try_link_parent(update, context.args[0])
+    if context.args:  # deep links: ?start=class_<token> (students) or ?start=<code> (parents)
+        arg = context.args[0]
+        if arg.startswith("class_"):
+            await student_join_start(update, arg[len("class_"):])
+        else:
+            await try_link_parent(update, arg)
         return
 
     if not any_admin_exists():
@@ -2052,13 +2735,24 @@ async def btn_pending_teachers(update, context):
         return
     lang = get_lang(uid)
     rows = fetchall("SELECT telegram_id, name, username FROM pending_teachers ORDER BY requested_at")
-    if not rows:
+    claims = fetchall("""
+        SELECT student_claims.student_id, student_claims.name AS tg_name,
+               students.name AS student_name, students.section_id
+        FROM student_claims JOIN students ON student_claims.student_id = students.id
+        ORDER BY student_claims.requested_at
+    """)
+    if not rows and not claims:
         await update.message.reply_text(tr(lang, "no_pending"))
         return
     for r in rows:
         await update.message.reply_text(
             tr(lang, "admin_new_request", name=r["name"], username=r["username"] or "—", tid=r["telegram_id"]),
             reply_markup=approval_keyboard(lang, r["telegram_id"]))
+    for c in claims:
+        await update.message.reply_text(
+            tr(lang, "admin_student_claim", tg_name=c["tg_name"], student=c["student_name"],
+               path=get_section_path(c["section_id"])),
+            reply_markup=claim_keyboard(lang, c["student_id"]))
 
 
 async def btn_list_classes(update, context):
@@ -2136,6 +2830,21 @@ async def btn_language(update, context):
     await cmd_language(update, context)
 
 
+async def btn_invite_link(update, context):
+    await _admin_class_pick(update, "invite", "which_class")
+
+
+async def btn_results(update, context):
+    """Published exam results for parents (their children) and students (themselves)."""
+    uid = update.effective_user.id
+    lang = get_lang(uid)
+    kids = linked_students_of(uid)
+    if not kids:
+        await update.message.reply_text(tr(lang, "results_no_access"))
+        return
+    await reply_chunks(update.message, "\n\n".join(results_text(lang, k) for k in kids))
+
+
 async def btn_cancel(update, context):
     uid = update.effective_user.id
     clear_flow(context, uid)
@@ -2192,6 +2901,7 @@ BUTTON_HANDLERS = {
     "add_admin": btn_add_admin, "language": btn_language, "cancel": btn_cancel,
     "my_classes": btn_my_classes, "exams": btn_exams, "notes": btn_notes,
     "p_children": btn_children, "p_excuse": btn_excuse,
+    "invite_link": btn_invite_link, "results": btn_results, "materials": btn_materials,
 }
 
 
@@ -2218,7 +2928,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 ADMIN_FLOWS = {"addclass", "bulkclasses", "editclass", "editstudent_rename", "addstudent", "addadmin", "announce"}
-STAFF_FLOWS = {"examnew", "examscores", "examedit", "examsetmax", "note"}
+STAFF_FLOWS = {"examnew", "examscores", "examedit", "examsetmax", "note", "matupload"}
 
 
 async def handle_flow(update, context, flow, text):
@@ -2338,6 +3048,11 @@ async def handle_flow(update, context, flow, text):
         await msg.reply_text(tr(lang, "note_sent", n=n), reply_markup=main_menu(uid))
         return
 
+    # ---------------- study materials ----------------
+    if action == "matupload":
+        await msg.reply_text(tr(lang, "mat_need_file"), reply_markup=done_keyboard(lang))
+        return
+
     # ---------------- exams ----------------
     if action == "examnew":
         if step == 0:
@@ -2383,6 +3098,8 @@ async def handle_flow(update, context, flow, text):
             await msg.reply_text(tr(lang, "score_invalid", max=fmt_num(mx)), reply_markup=cancel_kb)
             return
         save_score(data["exam_id"], data["student_id"], v)
+        if exam_is_published(data["exam_id"]):  # tell parents/student the mark changed
+            await notify_result(context.bot, data["exam_id"], data["student_id"], "updated")
         clear_flow(context)
         await msg.reply_text(tr(lang, "score_saved"), reply_markup=main_menu(uid))
         await show_exam(msg, lang, data["exam_id"])
@@ -2490,7 +3207,7 @@ def exams_for_user(uid: int):
 
 
 def exam_detail(exam_id: int, lang):
-    e = fetchone("SELECT id, section_id, name, subject, max_score, exam_date FROM exams WHERE id = ?", (exam_id,))
+    e = fetchone("SELECT id, section_id, name, subject, max_score, exam_date, published FROM exams WHERE id = ?", (exam_id,))
     if not e:
         return None, None
     scores = {r["student_id"]: r["score"] for r in fetchall(
@@ -2500,13 +3217,22 @@ def exam_detail(exam_id: int, lang):
     avg = f"{sum(vals) / len(vals):.1f}" if vals else "—"
     text = tr(lang, "exam_detail", subject=e["subject"], name=e["name"], path=get_section_path(e["section_id"]),
               date=fmt_date(e["exam_date"], lang), max=fmt_num(e["max_score"]), avg=avg,
-              entered=len(vals), total=len(students))
+              entered=len(vals), total=len(students),
+              status=tr(lang, "exam_status_pub" if e["published"] else "exam_status_hidden"))
     rows = []
     for s in students:
         sc = scores.get(s["id"])
         label = f"{s['name']} — {fmt_num(sc) if sc is not None else '?'}/{fmt_num(e['max_score'])}"
         rows.append([InlineKeyboardButton(label, callback_data=f"exm:edit:{exam_id}:{s['id']}")])
     rows.append([InlineKeyboardButton(tr(lang, "btn_change_max"), callback_data=f"exm:max:{exam_id}")])
+    if e["published"]:
+        rows.append([InlineKeyboardButton(tr(lang, "btn_unpublish"), callback_data=f"exm:unpub:{exam_id}")])
+    else:
+        rows.append([InlineKeyboardButton(tr(lang, "btn_publish"), callback_data=f"exm:pub:{exam_id}")])
+    rows.append([InlineKeyboardButton("📗 Excel", callback_data=f"exx:xlsx:{exam_id}:one"),
+                 InlineKeyboardButton("📕 PDF", callback_data=f"exx:pdf:{exam_id}:one")])
+    rows.append([InlineKeyboardButton(tr(lang, "btn_all_exams") + " · Excel", callback_data=f"exx:xlsx:{exam_id}:all"),
+                 InlineKeyboardButton(tr(lang, "btn_all_exams") + " · PDF", callback_data=f"exx:pdf:{exam_id}:all")])
     return text, InlineKeyboardMarkup(rows)
 
 
@@ -2625,7 +3351,7 @@ async def cb_att(update, context, query, uid, lang, parts):
 
 
 ADMIN_SEC_ACTIONS = {"editclass", "delclass", "addstudent", "bulkstudents", "editstudent", "delstudent",
-                     "liststudents", "studentcode", "assignteacher", "mvto", "annclass"}
+                     "liststudents", "studentcode", "assignteacher", "mvto", "annclass", "invite"}
 STAFF_SEC_ACTIONS = {"attendance", "monthly", "export", "weekly", "notes", "examnew"}
 
 
@@ -2724,6 +3450,9 @@ async def cb_sec(update, context, query, uid, lang, parts):
         execute("UPDATE students SET section_id = ? WHERE id = ?", (sid, move_id))
         await msg.reply_text(tr(lang, "student_moved", name=s["name"], old=old_path, new=path), reply_markup=main_menu(uid))
 
+    elif action == "invite":
+        await send_invite(msg, lang, context, sid, path)
+
     elif action == "annclass":
         set_flow(context, "announce", 0, target="class", section_id=sid)
         await msg.reply_text(tr(lang, "ann_ask_text_class", path=path), reply_markup=cancel_kb)
@@ -2784,7 +3513,8 @@ async def cb_stu(update, context, query, uid, lang, parts):
     elif action == "editstudent":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton(tr(lang, "btn_rename"), callback_data=f"ed:rename:{stid}")],
-            [InlineKeyboardButton(tr(lang, "btn_move"), callback_data=f"ed:move:{stid}")]])
+            [InlineKeyboardButton(tr(lang, "btn_move"), callback_data=f"ed:move:{stid}")],
+            [InlineKeyboardButton(tr(lang, "btn_unlink"), callback_data=f"ed:unlink:{stid}")]])
         await msg.reply_text(tr(lang, "student_what_do", name=student["name"]), reply_markup=kb)
 
 
@@ -2797,6 +3527,15 @@ async def cb_ed(update, context, query, uid, lang, parts):
     student = fetchone("SELECT name FROM students WHERE id = ?", (stid,))
     if not student:
         await query.message.reply_text(tr(lang, "student_gone"), reply_markup=main_menu(uid))
+        return
+    if act == "unlink":
+        link = fetchone("SELECT chat_id FROM student_links WHERE student_id = ?", (stid,))
+        if not link:
+            await query.message.reply_text(tr(lang, "student_not_linked"), reply_markup=main_menu(uid))
+            return
+        execute("DELETE FROM student_links WHERE student_id = ?", (stid,))
+        await safe_send(context.bot, link["chat_id"], tr(get_lang(link["chat_id"]), "student_unlinked_user"))
+        await query.message.reply_text(tr(lang, "student_unlinked_admin", name=student["name"]), reply_markup=main_menu(uid))
         return
     if act == "rename":
         set_flow(context, "editstudent_rename", 0, student_id=stid, old_name=student["name"])
@@ -2972,9 +3711,127 @@ async def cb_exm(update, context, query, uid, lang, parts):
     elif act == "max":
         set_flow(context, "examsetmax", 0, exam_id=exam_id)
         await msg.reply_text(tr(lang, "ask_exam_max"), reply_markup=cancel_menu(lang))
+    elif act == "pub":
+        n = await publish_exam(context.bot, exam_id)
+        await msg.reply_text(tr(lang, "exam_published", n=n))
+        await show_exam(msg, lang, exam_id)
+    elif act == "unpub":
+        execute("UPDATE exams SET published = 0 WHERE id = ?", (exam_id,))
+        await msg.reply_text(tr(lang, "exam_unpublished"))
+        await show_exam(msg, lang, exam_id)
+
+
+async def send_invite(msg, lang, context, section_id, path):
+    token = get_class_invite_token(section_id)
+    link = f"https://t.me/{context.bot.username}?start=class_{token}"
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(lang, "btn_regen_link"), callback_data=f"inv:regen:{section_id}")]])
+    await msg.reply_text(tr(lang, "invite_link_text", path=path, link=link), reply_markup=kb)
+
+
+async def cb_inv(update, context, query, uid, lang, parts):
+    if not is_admin(uid):
+        await query.answer(tr(lang, "admins_only_alert"), show_alert=True)
+        return
+    sid = int(parts[2])
+    path = get_section_path(sid)
+    if not path:
+        await query.answer(tr(lang, "class_gone"), show_alert=True)
+        return
+    await query.answer()
+    get_class_invite_token(sid, regenerate=True)
+    await query.message.reply_text(tr(lang, "invite_regenerated"))
+    await send_invite(query.message, lang, context, sid, path)
+
+
+async def cb_sj(update, context, query, uid, lang, parts):
+    """A student taps their own name after opening the class invite link."""
+    stid = int(parts[1])
+    user = update.effective_user
+    if role_of(uid) != "none":
+        await query.answer(tr(lang, "student_join_blocked"), show_alert=True)
+        return
+    if fetchone("SELECT 1 FROM student_claims WHERE chat_id = ?", (uid,)):
+        await query.answer(tr(lang, "claim_pending"), show_alert=True)
+        return
+    s = fetchone("SELECT name, section_id FROM students WHERE id = ?", (stid,))
+    if not s:
+        await query.answer(tr(lang, "student_gone"), show_alert=True)
+        return
+    if fetchone("SELECT 1 FROM student_links WHERE student_id = ?", (stid,)) or \
+            fetchone("SELECT 1 FROM student_claims WHERE student_id = ?", (stid,)):
+        await query.answer(tr(lang, "name_taken"), show_alert=True)
+        return
+    tg_name = f"{user.full_name} @{user.username}" if user.username else user.full_name
+    try:
+        execute("INSERT INTO student_claims (student_id, chat_id, name, requested_at) VALUES (?, ?, ?, ?)",
+                (stid, uid, tg_name, now_eat().isoformat(timespec="seconds")))
+    except Exception:
+        await query.answer(tr(lang, "name_taken"), show_alert=True)
+        return
+    path = get_section_path(s["section_id"])
+    for aid in get_admin_ids():
+        alang = get_lang(aid)
+        await safe_send(context.bot, aid,
+                        tr(alang, "admin_student_claim", tg_name=tg_name, student=s["name"], path=path),
+                        reply_markup=claim_keyboard(alang, stid))
+    await query.answer()
+    await query.edit_message_text(tr(lang, "student_claim_sent", name=s["name"]))
+
+
+async def cb_scl(update, context, query, uid, lang, parts):
+    if not is_admin(uid):
+        await query.answer(tr(lang, "admins_only_alert"), show_alert=True)
+        return
+    act, stid = parts[1], int(parts[2])
+    claim = fetchone("SELECT chat_id, name FROM student_claims WHERE student_id = ?", (stid,))
+    student = fetchone("SELECT name FROM students WHERE id = ?", (stid,))
+    if not claim or not student:
+        await query.answer(tr(lang, "request_handled"), show_alert=True)
+        return
+    await query.answer()
+    cid = claim["chat_id"]
+    clang = get_lang(cid)
+    execute("DELETE FROM student_claims WHERE student_id = ?", (stid,))
+    if act == "ok":
+        execute("INSERT INTO student_links (student_id, chat_id) VALUES (?, ?) ON CONFLICT DO NOTHING", (stid, cid))
+        await query.edit_message_text(tr(lang, "student_approved_admin", name=student["name"], tg_name=claim["name"]))
+        await safe_send(context.bot, cid, tr(clang, "student_approved_user", name=student["name"]),
+                        reply_markup=menu_for("student", clang))
+    else:
+        await query.edit_message_text(tr(lang, "student_rejected_admin", name=student["name"], tg_name=claim["name"]))
+        await safe_send(context.bot, cid, tr(clang, "student_rejected_user"))
+
+
+async def cb_exx(update, context, query, uid, lang, parts):
+    """Export one exam (scope 'one') or all exams of the class (scope 'all')."""
+    fmt, exam_id, scope = parts[1], int(parts[2]), parts[3]
+    if role_of(uid) not in ("admin", "teacher"):
+        await query.answer(tr(lang, "not_teacher"), show_alert=True)
+        return
+    exam = fetchone("SELECT section_id, name, subject FROM exams WHERE id = ?", (exam_id,))
+    if not exam:
+        await query.answer(tr(lang, "exam_gone"), show_alert=True)
+        return
+    if not can_access_section(uid, exam["section_id"]):
+        await query.answer(tr(lang, "not_assigned"), show_alert=True)
+        return
+    await query.answer(tr(lang, "preparing"))
+    try:
+        if scope == "all":
+            data = (build_class_exams_xlsx if fmt == "xlsx" else build_class_exams_pdf)(exam["section_id"], lang)
+            base = f"{get_section_path(exam['section_id'])}_exams"
+        else:
+            data = (build_exam_xlsx if fmt == "xlsx" else build_exam_pdf)(exam_id, lang)
+            base = f"{exam['subject']}_{exam['name']}"
+    except Exception as e:
+        await query.message.reply_text(tr(lang, "export_failed", err=e))
+        return
+    safe = re.sub(r"[^\w\-]+", "_", base, flags=re.UNICODE).strip("_") or "exam"
+    await query.message.reply_document(document=io.BytesIO(data), filename=f"{safe}_{today_iso()}.{fmt}")
 
 
 CB_HANDLERS = {
+    "mat": cb_mat, "inv": cb_inv, "sj": cb_sj, "scl": cb_scl, "exx": cb_exx,
     "lang": cb_lang, "treg": cb_treg, "tapp": cb_tapp, "att": cb_att, "attsubmit": cb_att,
     "sec": cb_sec, "tch": cb_tch, "stu": cb_stu, "ed": cb_ed, "del": cb_del, "fmt": cb_fmt,
     "nt": cb_nt, "ann": cb_ann, "exc": cb_exc, "exm": cb_exm,
@@ -3025,7 +3882,8 @@ def main():
         app.add_handler(CommandHandler(name, fn))
 
     app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
+    app.add_handler(MessageHandler(
+        filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.AUDIO, on_media))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
 
